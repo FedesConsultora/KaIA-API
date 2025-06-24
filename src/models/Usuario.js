@@ -2,6 +2,28 @@
 import { DataTypes } from 'sequelize';
 import sequelize from '../../config/database.js';
 
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Usuario:
+ *       type: object
+ *       required: [id, phone]
+ *       properties:
+ *         id:
+ *           type: integer
+ *           example: 7
+ *         nombre:
+ *           type: string
+ *           example: "Carolina Giménez"
+ *         phone:
+ *           type: string
+ *           example: "5492215551234"
+ *         role:
+ *           type: string
+ *           example: "vet"
+ */
 const Usuario = sequelize.define('Usuario', {
   id: {
     type: DataTypes.INTEGER,

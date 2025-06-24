@@ -17,14 +17,51 @@ const apiLimiter = rateLimit({
 });
 app.use('/api', apiLimiter);
 
-// Swagger
+/* ─────────── Swagger ─────────── */
 const swaggerSpec = swaggerJsdoc({
   definition: {
     openapi: '3.0.0',
-    info: { title: 'KaIA API', version: '1.0.0' }
+    info: {
+      title: 'KaIA – API para Asistente Inteligente',
+      version: '1.0.0',
+      description: `
+API REST del asistente conversacional **KaIA**, desarrollado para KronenVet.  
+
+Incluye endpoints para:
+
+- Consulta de stock en tiempo real
+- Consulta de saldo de cuenta corriente
+- Futuras funcionalidades de recomendación inteligente y feedback in-chat
+
+Autenticación mediante JWT.  
+Tecnologías: Node.js, Express, Sequelize, MySQL.
+      `.trim(),
+      contact: {
+        name: 'Equipo Encargado de KaIA',
+        url: 'https://fedes.ai',
+        email: 'soporte@fedes.ai'
+      }
+    },
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT'
+        }
+      },
+      schemas: {} // se completan desde los modelos
+    },
+    servers: [
+      {
+        url: '/api',
+        description: 'Servidor local (desarrollo)'
+      }
+    ]
   },
   apis: ['./src/routes/*.js']
 });
+
 app.use('/api-docs', swaggerUI.serve, swaggerUI.setup(swaggerSpec));
 
 // Rutas
