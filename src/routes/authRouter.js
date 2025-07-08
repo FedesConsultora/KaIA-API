@@ -1,7 +1,7 @@
 // src/routes/authRouter.js
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
-import Usuario from '../models/Usuario.js';
+import { Usuario } from '../models/index.js';
 
 const router = Router();
 
@@ -17,7 +17,7 @@ const router = Router();
  *         required: true
  *         schema:
  *           type: string
- *         description: Número de teléfono con código país (ej: 5492215550000)
+ *         description: "Número de teléfono con código país (ej: 5492215550000)"
  *     responses:
  *       200:
  *         description: Token generado

@@ -1,48 +1,42 @@
-// src/services/gptService.js
-import { Configuration, OpenAIApi } from 'openai';
+import OpenAI from 'openai';
 import 'dotenv/config';
+import { getPromptSystem } from './promptTemplate.js';
 
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY
-});
+let openai = null;
 
-const openai = new OpenAIApi(configuration);
+if (process.env.OPENAI_API_KEY) {
+  openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+} else {
+  console.warn('⚠️ OPENAI_API_KEY no configurado: GPT se simula.');
+}
 
+/**
+ * Responde un mensaje usando GPT o, si no está configurado,
+ * devuelve una respuesta simulada para pruebas.
+ */
 export async function responderConGPT(mensajeVet) {
-  const completion = await openai.createChatCompletion({
-    model: "gpt-4",
-    messages: [
-      {
-        role: "system",
-        content: `
-            Sos KaIA, un asistente inteligente para veterinarios que trabaja con KrönenVet.
+  if (!openai) {
+    return `🛠️ Simulación KaIA: recibí tu mensaje "${mensajeVet}", pero OpenAI aún no está configurado.`;
+  }
 
-            Tu objetivo principal es recomendar productos del catálogo de KrönenVet en base a consultas como:
-            - Nombre comercial
-            - Principio activo
-            - Descripción de uso clínico (ej: “algo para otitis”)
+  try {
+    console.log("📥 [GPT INPUT]:", mensajeVet);
 
-            Nunca realizás diagnósticos ni prescripciones médicas. Siempre aclarás que la sugerencia es orientativa y que debe validarse con criterio profesional.
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-2024-05-13", // modelo fijado para consistencia
+      messages: [
+        { role: "system", content: getPromptSystem() },
+        { role: "user", content: mensajeVet }
+      ],
+      temperature: 0.7
+    });
 
-            Respuestas esperadas:
-            - Nombre del producto
-            - Descripción breve
-            - Principio activo (si aplica)
-            - Si hay promoción, mencionarla
-            - Indicación principal
-            - Precio estimado (si está disponible)
-            - Breve advertencia al final: “Esta sugerencia no reemplaza una indicación clínica.”
+    const respuesta = completion.choices?.[0]?.message?.content || "Sin respuesta del modelo.";
+    console.log("📤 [GPT OUTPUT]:", respuesta);
+    return respuesta;
 
-            Respondés de forma concisa y clara, como si chatearas por WhatsApp.
-        `.trim()
-      },
-      {
-        role: "user",
-        content: mensajeVet
-      }
-    ],
-    temperature: 0.7
-  });
-
-  return completion.data.choices[0].message.content;
+  } catch (error) {
+    console.error("❌ Error al consultar OpenAI:", error);
+    return "Lo siento, no pude procesar tu consulta en este momento. Por favor intentá más tarde.";
+  }
 }

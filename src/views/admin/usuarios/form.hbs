@@ -1,0 +1,31 @@
+<h1>{{#if isEdit}}Editar{{else}}Nuevo{{/if}} usuario</h1>
+
+<form action="/admin/usuarios{{#if isEdit}}/{{usuario.id}}?_method=PUT{{/if}}" method="POST" class="row g-3">
+  <div class="col-md-6">
+    <label class="form-label">Nombre</label>
+    <input name="nombre" class="form-control" value="{{usuario.nombre}}" required>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">Teléfono (WhatsApp)</label>
+    <input name="phone" class="form-control" value="{{usuario.phone}}" required>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">CUIT</label>
+    <input name="cuit" class="form-control" value="{{usuario.cuit}}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">Email</label>
+    <input name="email" type="email" class="form-control" value="{{usuario.email}}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">Rol</label>
+    <select name="role" class="form-select">
+      <option value="vet" {{#if (eq usuario.role 'vet')}}selected{{/if}}>Veterinario</option>
+      <option value="admin" {{#if (eq usuario.role 'admin')}}selected{{/if}}>Administrador</option>
+    </select>
+  </div>
+  <div class="col-12">
+    <button class="btn btn-primary">Guardar</button>
+    <a class="btn btn-secondary" href="/admin/usuarios">Volver</a>
+  </div>
+</form>

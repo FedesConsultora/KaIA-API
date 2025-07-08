@@ -1,10 +1,14 @@
+// src/routes/productosRouter.js
 import { Router } from 'express';
+import multer from 'multer';
 import {
   buscarProductos,
-  getProductoById
+  getProductoById,
+  cargarProductosDesdeExcel
 } from '../controllers/productosController.js';
 
 const router = Router();
+const upload = multer(); // Almacenamiento en memoria
 
 /**
  * @swagger
@@ -64,5 +68,38 @@ router.get('/buscar', buscarProductos);
  *         description: Producto no encontrado
  */
 router.get('/productos/:id', getProductoById);
+
+/**
+ * @swagger
+ * /catalogo/cargar-excel:
+ *   post:
+ *     summary: Carga productos desde un archivo Excel (.xlsx)
+ *     tags: [Catálogo]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               archivo:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Productos cargados correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 msg:
+ *                   type: string
+ *                 total:
+ *                   type: integer
+ *       400:
+ *         description: No se adjuntó archivo
+ */
+router.post('/cargar-excel', upload.single('archivo'), cargarProductosDesdeExcel);
 
 export default router;

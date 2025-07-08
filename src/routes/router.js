@@ -6,6 +6,7 @@ import promosRouter from './promosRouter.js';
 import recomendacionRouter from './recomendacionRouter.js';
 import authRouter from './authRouter.js';
 import chatRouter from './chatRouter.js';
+import adminRouter from './adminRouter.js';
 
 const router = Router();
 
@@ -15,6 +16,7 @@ router.use('/cuenta', cuentaRouter);
 router.use('/catalogo', productosRouter);
 router.use('/productos', promosRouter);
 router.use('/recomendacion', recomendacionRouter);
+router.use('/admin', adminRouter);
 router.use('/chat', chatRouter);
 
 

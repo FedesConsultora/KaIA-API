@@ -1,0 +1,25 @@
+<h1 class="mb-3">Usuarios <a href="/admin/usuarios/new" class="btn btn-success btn-sm">➕ Nuevo</a></h1>
+
+<table class="table table-striped">
+  <thead><tr>
+    <th>ID</th><th>Nombre</th><th>Teléfono</th><th>CUIT</th><th>Email</th><th>Rol</th><th></th>
+  </tr></thead>
+  <tbody>
+  {{#each usuarios}}
+    <tr>
+      <td>{{id}}</td>
+      <td>{{nombre}}</td>
+      <td>{{phone}}</td>
+      <td>{{cuit}}</td>
+      <td>{{email}}</td>
+      <td>{{role}}</td>
+      <td>
+        <a href="/admin/usuarios/{{id}}/edit" class="btn btn-sm btn-primary">Editar</a>
+        <form method="POST" action="/admin/usuarios/{{id}}?_method=DELETE" class="d-inline">
+          <button class="btn btn-sm btn-danger" onclick="return confirm('¿Eliminar usuario?')">🗑</button>
+        </form>
+      </td>
+    </tr>
+  {{/each}}
+  </tbody>
+</table>

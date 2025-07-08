@@ -1,0 +1,9 @@
+<button
+  type="submit"
+  class="btn {{class}} d-flex align-items-center gap-2"
+  {{#if id}}id="{{id}}"{{/if}}
+>
+  <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+  {{#if icon}}<span class="me-1">{{{icon}}}</span>{{/if}}
+  <span>{{label}}</span>
+</button>

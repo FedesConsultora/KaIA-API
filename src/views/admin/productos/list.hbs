@@ -1,0 +1,72 @@
+<h1 class="mb-3">
+  Productos
+  <a href="/admin/productos/new"  class="btn btn-success btn-sm">➕ Nuevo</a>
+  <!-- Botón que abre modal -->
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
+    ⬆️ Importar Excel
+  </button>
+</h1>
+
+{{!-- Mensajes flash --}}
+{{#if success}}<div class="alert alert-success">{{success}}</div>{{/if}}
+{{#if error}}  <div class="alert alert-danger">{{error}}</div>{{/if}}
+
+<div class="table-responsive">
+  <table data-auto="dt" class="table table-striped align-middle">
+    <thead>
+      <tr>
+        <th>ID</th><th>Código</th><th>Nombre</th><th>Precio</th>
+        <th>Stock</th><th>Visible</th><th>De baja</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {{#each productos}}
+      <tr>
+        <td>{{id}}</td>
+        <td>{{id_articulo}}</td>
+        <td>{{nombre}}</td>
+        <td>${{precio}}</td>
+        <td>{{cantidad}}</td>
+        <td>{{#if visible}}✔{{else}}✖{{/if}}</td>
+        <td>{{#if debaja}}✔{{else}}—{{/if}}</td>
+        <td>
+          <a class="btn btn-sm btn-primary" href="/admin/productos/{{id}}/edit">Editar</a>
+          <form method="POST" action="/admin/productos/{{id}}?_method=DELETE" class="d-inline">
+            <button class="btn btn-sm btn-danger" onclick="return confirm('¿Eliminar producto?')">🗑</button>
+          </form>
+        </td>
+      </tr>
+    {{/each}}
+    </tbody>
+  </table>
+</div>
+
+<!-- Modal Bootstrap -->
+<div class="modal fade" id="modalExcel" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form action="/admin/productos/import-excel" method="POST" enctype="multipart/form-data"
+        onsubmit="const btn = this.querySelector('button[type=submit]'); btn.disabled = true; btn.querySelector('.spinner-border').classList.remove('d-none');">
+
+        <div class="modal-header">
+          <h5 class="modal-title">Importar desde Excel</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Archivo .xlsx</label>
+            <input type="file" name="archivo" accept=".xlsx" class="form-control" required>
+            <small class="text-muted">Se tomarán solo las columnas válidas del modelo.</small>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          {{> spinnerSubmitBtn label="Importar" }}
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        </div>
+
+      </form>
+    </div>
+  </div>
+</div>

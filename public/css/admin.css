@@ -1,0 +1,111 @@
+:root {
+  --rojo-krv: #E0141C;
+  --negro: #333333;
+  --gris-suave: #f8f8f8;
+}
+
+/* BASE */
+body {
+  font-family: "Segoe UI", sans-serif;
+  color: var(--negro);
+  background-color: #fdfdfd;
+}
+
+h1, h2, h3 {
+  color: var(--negro);
+}
+
+/* NAVBAR */
+.navbar.bg-primary {
+  background-color: var(--rojo-krv) !important;
+}
+.navbar .nav-link.active,
+.navbar .nav-link:hover {
+  text-decoration: underline;
+}
+
+/* BOTONES */
+.btn-primary {
+  background-color: var(--rojo-krv);
+  border-color: var(--rojo-krv);
+}
+.btn-primary:hover {
+  background-color: #c41219;
+  border-color: #c41219;
+}
+.btn-primary:active{
+  background-color: var(--rojo-krv);
+  border-color: var(--rojo-krv);
+}
+/* TABLAS */
+.table th {
+  background-color: var(--gris-suave);
+  color: var(--negro);
+  vertical-align: middle;
+}
+
+.table td, .table th {
+  white-space: nowrap;
+}
+
+.table-responsive {
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* FORMULARIOS */
+form .form-label {
+  font-weight: 500;
+  margin-bottom: 0.4rem;
+}
+
+form .form-control,
+form .form-select {
+  border-radius: 0.3rem;
+  min-height: 38px;
+}
+
+form .btn {
+  min-width: 100px;
+}
+
+/* ICONOS DE ACCIÓN */
+table .btn {
+  margin-right: 0.25rem;
+}
+
+/* ESTADO VISUAL DATATABLES */
+.datatable-init thead {
+  position: sticky;
+  top: 0;
+  background: var(--gris-suave);
+  z-index: 2;
+}
+
+/* MOBILE TWEAKS */
+@media (max-width: 576px) {
+  .navbar .nav {
+    flex-direction: column;
+  }
+
+  .navbar .nav-item {
+    margin-bottom: 0.5rem;
+  }
+
+  h1 {
+    font-size: 1.4rem;
+    text-align: center;
+  }
+
+  .table td,
+  .table th {
+    font-size: 0.85rem;
+  }
+
+  form .btn {
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+}
+

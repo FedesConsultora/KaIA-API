@@ -1,57 +1,24 @@
-export const sugerirProducto = (req, res) => {
-  const { query } = req.body;
+import { buildCatalogContext } from '../services/catalogContext.js';
+import { responderConGPT }    from '../services/gptService.js';
 
-  if (!query || query.trim() === '') {
-    return res.status(400).json({ msg: 'La consulta no puede estar vacía' });
+/**
+ * Recibe el texto del vete → busca datos → llama a GPT → devuelve respuesta
+ * Pensado para usarlo tanto desde REST (/api/recomendar) como desde webhook.
+ */
+export async function recomendarProducto(req, res) {
+  try {
+    const mensajeVet = req.body?.mensaje || req.query?.mensaje;
+    if (!mensajeVet) return res.status(400).json({ msg: 'Falta mensaje' });
+
+    // 1) Buscamos productos relacionados para el contexto
+    const contextoExtra = await buildCatalogContext(mensajeVet);
+    
+    // 2) Llamamos a GPT pasándole prompt + contexto
+    const respuesta = await responderConGPT(mensajeVet, contextoExtra);
+
+    res.json({ ok: true, respuesta });
+  } catch (err) {
+    console.error('❌ Error recomendación:', err);
+    res.status(500).json({ ok: false, msg: 'Error interno' });
   }
-
-  // Simulamos lógica de recomendación
-  const sugerencias = [];
-
-  // Caso: búsqueda relacionada a "otitis"
-  if (query.toLowerCase().includes('otitis') || query.toLowerCase().includes('oído')) {
-    sugerencias.push({
-      producto: {
-        id: 1,
-        nombre: "Otoclean Plus",
-        compuesto: "gentamicina + corticoide",
-        descripcion: "Solución ótica para otitis externa en perros y gatos",
-        precio: "1750.00",
-        stock: 32
-      },
-      promo: "2x1",
-      qtySugerida: 3
-    });
-
-    sugerencias.push({
-      producto: {
-        id: 2,
-        nombre: "Aurisan Duo",
-        compuesto: "enrofloxacina + antifúngico",
-        descripcion: "Tratamiento de otitis con componente fúngico",
-        precio: "1890.00",
-        stock: 18
-      },
-      promo: null,
-      qtySugerida: 2
-    });
-  }
-
-  // Caso genérico si no se detecta nada
-  if (sugerencias.length === 0) {
-    sugerencias.push({
-      producto: {
-        id: 99,
-        nombre: "Producto genérico",
-        compuesto: "composición simulada",
-        descripcion: "Producto ejemplo para casos generales",
-        precio: "1000.00",
-        stock: 20
-      },
-      promo: null,
-      qtySugerida: 1
-    });
-  }
-
-  res.json({ sugerencias });
-};
+}

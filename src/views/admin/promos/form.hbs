@@ -1,0 +1,81 @@
+<h1>{{#if isEdit}}Editar{{else}}Nueva{{/if}} promoción</h1>
+
+<form
+  action="/admin/promos{{#if isEdit}}/{{promo.id}}?_method=PUT{{/if}}"
+  method="POST"
+  class="row g-3"
+>
+
+  <!-- Columna 1 -->
+  <div class="col-md-6">
+    <label class="form-label">Nombre *</label>
+    <input name="nombre" class="form-control" value="{{promo.nombre}}" required>
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">Tipo</label>
+    <input name="tipo" class="form-control" value="{{promo.tipo}}">
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">Presentación</label>
+    <input name="presentacion" class="form-control" value="{{promo.presentacion}}">
+  </div>
+
+  <!-- Columna 2 -->
+  <div class="col-md-4">
+    <label class="form-label">Especie</label>
+    <input name="especie" class="form-control" value="{{promo.especie}}">
+  </div>
+
+  <div class="col-md-4">
+    <label class="form-label">Laboratorio</label>
+    <input name="laboratorio" class="form-control" value="{{promo.laboratorio}}">
+  </div>
+
+  <div class="col-md-4">
+    <label class="form-label">Stock disponible</label>
+    <input name="stock_disponible" type="number" min="0" class="form-control" value="{{promo.stock_disponible}}">
+  </div>
+
+  <!-- Fechas & Vigencia -->
+  <div class="col-md-3">
+    <label class="form-label">Desde</label>
+    <input name="vigencia_desde" type="date" class="form-control" value="{{promo.vigencia_desde_iso}}">
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">Hasta</label>
+    <input name="vigencia_hasta" type="date" class="form-control" value="{{promo.vigencia_hasta_iso}}">
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">¿Vigente?</label>
+    <select name="vigente" class="form-select">
+      <option value="1" {{#if promo.vigente}}selected{{/if}}>Sí</option>
+      <option value="0" {{#unless promo.vigente}}selected{{/unless}}>No</option>
+    </select>
+  </div>
+
+  <!-- Textos largos -->
+  <div class="col-12">
+    <label class="form-label">Detalle (visible para el vete)</label>
+    <textarea name="detalle" rows="3" class="form-control">{{promo.detalle}}</textarea>
+  </div>
+
+  <div class="col-12">
+    <label class="form-label">Regalo / Beneficio</label>
+    <textarea name="regalo" rows="2" class="form-control">{{promo.regalo}}</textarea>
+  </div>
+
+  <div class="col-12">
+    <label class="form-label">Productos (texto libre)</label>
+    <textarea name="productos_txt" rows="2" class="form-control">{{promo.productos_txt}}</textarea>
+  </div>
+
+  <!-- Botones -->
+  <div class="col-12 mt-3">
+    <button class="btn btn-primary">Guardar</button>
+    <a href="/admin/promos" class="btn btn-secondary">Volver</a>
+  </div>
+</form>

@@ -1,5 +1,5 @@
 // src/controllers/cuentaController.js
-import CuentaCorriente from '../models/CuentaCorriente.js';
+import { CuentaCorriente } from '../models/index.js'; 
 
 export const getSaldo = async (req, res) => {
   const { user } = req;

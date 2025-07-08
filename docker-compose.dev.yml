@@ -1,0 +1,18 @@
+services:
+  db:
+    image: mysql:8.0
+
+  app:
+    build: .
+    command: sh -c "wait-port db:3306 && npx nodemon --legacy-watch index.js"
+    env_file: .env.dev
+    environment:
+      NODE_ENV: development
+      DB_HOST: db
+      DB_PORT: 3306
+    volumes:
+      - .:/app
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
