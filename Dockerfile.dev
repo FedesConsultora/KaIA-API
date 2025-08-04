@@ -1,0 +1,16 @@
+# Dockerfile.dev
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Instalamos dependencias
+COPY package*.json ./
+RUN npm install
+
+# Nodemon + wait-port global
+RUN npm install -g nodemon wait-port
+
+# Mapeamos código desde host, así que no lo copiamos acá
+
+# Ejecutamos con nodemon
+CMD ["sh", "-c", "wait-port db:3306 && nodemon --legacy-watch index.js"]

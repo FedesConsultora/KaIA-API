@@ -10,14 +10,20 @@ export const uploadExcel = multer().single('archivo');
 const toBool = (val) => val === 'on' || val === 'true' || val === true;
 
 /* ─────────────────────── Listado (GET) ──────────────────────── */
-export const list = async (_req, res) => {
+export const list = async (req, res) => {
   const productosRaw = await Producto.findAll({
     include: { model: Promocion, attributes: ['id', 'nombre'] },
-    order  : [['nombre', 'ASC']]
+    order: [['nombre', 'ASC']]
   });
 
   const productos = productosRaw.map(p => p.get({ plain: true }));
-  res.render('admin/productos/list', { title: 'Productos', productos });
+
+  res.render('admin/productos/list', {
+    title: 'Productos',
+    productos,
+    success: req.flash('success'),
+    error: req.flash('error')
+  });
 };
 
 /* ───────────────────── Form Nuevo / Edit ────────────────────── */
@@ -42,25 +48,19 @@ export const formEdit = async (req, res) => {
 
 /* ───────────────────────── Create ───────────────────────────── */
 export const create = async (req, res) => {
-  try {
-    const data = {
-      ...req.body,
-      debaja : toBool(req.body.debaja),
-      visible: toBool(req.body.visible)
-    };
+  const { id_articulo, nombre, precio, cantidad, visible, debaja } = req.body;
 
-    Object.keys(data).forEach(k => { if (data[k] === '') data[k] = null; });
+  await Producto.create({
+    id_articulo,
+    nombre,
+    precio,
+    cantidad,
+    visible: visible === 'on',
+    debaja: debaja === 'on'
+  });
 
-    await Producto.create(data);
-    res.redirect('/admin/productos');
-  } catch (err) {
-    console.error('⛔ ERROR al crear producto:', err.message);
-    res.status(500).send(`
-      <h1>Error al guardar el producto</h1>
-      <pre>${err.message}</pre>
-      <a href="/admin/productos/new">Volver</a>
-    `);
-  }
+  req.flash('success', `Producto ${nombre} creado con éxito`);
+  res.redirect('/admin/productos');
 };
 
 /* ───────────────────────── Update ───────────────────────────── */
@@ -74,16 +74,21 @@ export const update = async (req, res) => {
     Object.keys(data).forEach(k => { if (data[k] === '') data[k] = null; });
 
     await Producto.update(data, { where: { id: req.params.id } });
+
+    req.flash('success', `Producto ${data.nombre || data.id_articulo} actualizado con éxito`);
     res.redirect('/admin/productos');
   } catch (err) {
     console.error('⛔ ERROR al actualizar producto:', err.message);
+    req.flash('error', 'No se pudo actualizar el producto');
     res.redirect(`/admin/productos/${req.params.id}/edit`);
   }
 };
 
+
 /* ───────────────────────── Delete ───────────────────────────── */
 export const remove = async (req, res) => {
   await Producto.destroy({ where: { id: req.params.id } });
+  req.flash('success', 'Producto eliminado con éxito');
   res.redirect('/admin/productos');
 };
 
@@ -97,76 +102,145 @@ export const importExcel = async (req, res) => {
 
     const wb    = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows  = XLSX.utils.sheet_to_json(sheet, { defval: null });
 
-    if (!rows.length) {
-      req.flash('error', 'La hoja está vacía');
-      return res.redirect('/admin/productos');
+    const range  = XLSX.utils.decode_range(sheet['!ref']);
+    const merges = sheet['!merges'] || [];
+    const rows   = [];
+
+    // --- Leer filas considerando celdas mergeadas ---
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      const row = [];
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+        let cell = sheet[cellAddress]?.v ?? null;
+
+        if (cell === null) {
+          const merge = merges.find(m =>
+            R >= m.s.r && R <= m.e.r && C >= m.s.c && C <= m.e.c
+          );
+          if (merge) {
+            const mainCell = XLSX.utils.encode_cell({ r: merge.s.r, c: merge.s.c });
+            cell = sheet[mainCell]?.v ?? null;
+          }
+        }
+
+        row.push(cell);
+      }
+      rows.push(row);
     }
 
+    console.log('🔹 Filas totales leídas del Excel:', rows.length);
+
+    // Normalizador de encabezados → sin tildes, sin espacios
+    const norm = s => (s ?? '')
+      .toString()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '')
+      .trim()
+      .toUpperCase();
+
+    // Mapeo actualizado para el nuevo Excel
     const map = {
       IDARTICULO   : 'id_articulo',
       DESCRIPCION  : 'nombre',
       COSTO        : 'costo',
       PRECIO1      : 'precio',
       PRESENTACION : 'presentacion',
-      PROVEEDOR    : 'proveedor',
       MARCA        : 'marca',
       RUBRO        : 'rubro',
       FAMILIA      : 'familia',
-      DEBAJA       : 'debaja',
-      CANTIDAD     : 'cantidad',
-      STOCKMINIMO  : 'stockMin',
-      STOCKMAXIMO  : 'stockMax',
+      PROVEEDOR    : 'proveedor',
       CODIGOBARRAS : 'codBarras',
+      DEBAJA       : 'debaja',
+      PUBLICAR     : 'visible',
+      DISP         : 'cantidad',
       OBSERVACIONES: 'observaciones'
     };
 
-    const productos = rows
-      .filter(r =>
-        r.DESCRIPCION &&
-        !(String(r.IDMARCA || '').toUpperCase().includes('PROM')) // excluir si IDMARCA contiene 'PROM'
-      )
-      .map(r => {
+    // Buscar fila de encabezados
+    const headerRowIndex = rows.findIndex(r => r.some(c => c));
+    const headersNorm = rows[headerRowIndex].map(norm);
+
+    console.log('🔹 Encabezados normalizados:', headersNorm);
+
+    const dataRows = rows.slice(headerRowIndex + 1);
+
+    // Forward-fill vertical para merges
+    const prevVals = Array(headersNorm.length).fill(null);
+    const filledRows = dataRows.map(row =>
+      row.map((cell, idx) => {
+        if (cell !== null && cell !== '') {
+          prevVals[idx] = cell;
+          return cell;
+        }
+        return prevVals[idx];
+      })
+    );
+
+    const idxDescripcion = headersNorm.findIndex(h => h === 'DESCRIPCION');
+
+    const parseDecimal = (val) => {
+      if (val === null || val === '') return null;
+      return parseFloat(
+        String(val).replace(/\./g, '').replace(',', '.')
+      ) || null;
+    };
+
+    const productos = filledRows
+      .filter(r => idxDescripcion >= 0 && r[idxDescripcion]) // Solo filas con descripción
+      .map((r, i) => {
         const obj = {};
+        r.forEach((val, idx) => {
+          const attr = map[headersNorm[idx]];
+          if (!attr || val === null || val === '') return;
 
-        for (const [col, attr] of Object.entries(map)) {
-          let val = r[col] ?? null;
-
-          if (['costo', 'precio'].includes(attr)) {
-            val = typeof val === 'string' ? parseFloat(val.replace(',', '.')) : val;
-          }
-
-          else if (['cantidad', 'stockMin', 'stockMax'].includes(attr)) {
-            val = typeof val === 'string' ? parseInt(val) : val;
-          }
-
-          else if (attr === 'debaja') {
-            const v = String(val).toLowerCase().trim();
-            val = v === 'true' || v === '1' || v === 'sí' || v === 'si';
+          // Casting
+          if (['costo','precio'].includes(attr)) {
+            val = parseDecimal(val);
+          } else if (['cantidad'].includes(attr)) {
+            val = parseInt(val, 10) || 0;
+          } else if (attr === 'debaja') {
+            val = ['1','TRUE','SI','SÍ'].includes(norm(val));
+          } else if (attr === 'visible') {
+            val = ['1','TRUE','SI','SÍ'].includes(norm(val));
+          } else if (attr === 'codBarras') {
+            val = String(val).split('.')[0]; // Aseguramos string sin decimales
           }
 
           obj[attr] = val;
-        }
+        });
 
+        // Generar ID automático si falta
+        if (!obj.id_articulo) obj.id_articulo = `AUTO-${Date.now()}-${i}`;
         return obj;
       });
 
+    console.log('🔹 Productos válidos parseados:', productos.length);
+    console.log('🔹 Ejemplo primeras 5 filas:', productos.slice(0, 5));
+
     if (!productos.length) {
-      req.flash('error', 'No se encontró ninguna fila válida');
+      req.flash('error', 'No se encontró ninguna fila válida para importar');
       return res.redirect('/admin/productos');
     }
 
+    const updatable = [
+      'costo','precio','presentacion','proveedor','marca','rubro','familia',
+      'debaja','cantidad','codBarras','observaciones','visible'
+    ];
+
     await Producto.bulkCreate(productos, {
-      updateOnDuplicate: Object.values(map),
+      updateOnDuplicate: updatable,
       validate: true
     });
 
-    req.flash('success', `Se importaron ${productos.length} productos`);
+    req.flash('success', `Se importaron ${productos.length} productos correctamente`);
     res.redirect('/admin/productos');
   } catch (err) {
-    console.error('Import Excel error:', err);
-    req.flash('error', 'Error al procesar el Excel');
+    console.error('⛔ Error al importar Excel:', err);
+    if (err.errors) {
+      err.errors.forEach(e => console.error('Detalle:', e.message, e.value));
+    }
+    req.flash('error', 'Error interno al procesar el Excel');
     res.redirect('/admin/productos');
   }
 };

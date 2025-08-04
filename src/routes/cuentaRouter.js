@@ -1,7 +1,8 @@
 // src/routes/cuentaRouter.js
 import { Router } from 'express';
 import { getSaldo } from '../controllers/cuentaController.js';
-import auth from '../middlewares/auth.js';
+import validarCuit from '../middlewares/validarCuit.js';
+
 
 const router = Router();
 
@@ -39,6 +40,6 @@ const router = Router();
  *       404:
  *         description: Cuenta no encontrada
  */
-router.get('/saldo', auth, getSaldo);
+router.get('/saldo', validarCuit, getSaldo);
 
 export default router;

@@ -21,13 +21,23 @@
 <nav class="navbar navbar-dark bg-primary">
   <div class="container">
     <a class="navbar-brand" href="/admin">KaIA Admin</a>
-    <ul class="nav">
-      <li class="nav-item"><a class="nav-link text-white" href="/admin/productos">Productos</a></li>
-      <li class="nav-item"><a class="nav-link text-white" href="/admin/promos">Promos</a></li>
-      <li class="nav-item"><a class="nav-link text-white" href="/admin/usuarios">Usuarios</a></li>
-    </ul>
+
+    {{#if usuario}}
+      <ul class="nav">
+        <li class="nav-item"><a class="nav-link text-white" href="/admin/productos">Productos</a></li>
+        <li class="nav-item"><a class="nav-link text-white" href="/admin/promos">Promos</a></li>
+        <li class="nav-item"><a class="nav-link text-white" href="/admin/usuarios">Usuarios</a></li>
+        <li class="nav-item"><a class="nav-link text-white" href="/admin/ejecutivos">Ejecutivos</a></li>
+
+      </ul>
+
+      <form action="/auth/logout" method="POST" class="ms-3">
+        <button class="btn btn-outline-light btn-sm">Salir</button>
+      </form>
+    {{/if}}
   </div>
 </nav>
+
 
 <!-- CONTENIDO -->
 <div class="container py-4">

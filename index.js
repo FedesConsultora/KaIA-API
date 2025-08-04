@@ -5,7 +5,6 @@ import sequelize from './config/database.js';
 import './src/models/index.js'; 
 
 const PORT = process.env.PORT || 3000;
-
 async function main() {
   try {
     // 1) Conectar a la DB

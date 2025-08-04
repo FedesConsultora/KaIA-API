@@ -1,18 +1,19 @@
+# docker-compose.yml
+version: '3.8'
+
 services:
   db:
     image: mysql:8.0
-
-  app:
-    build: .
-    command: sh -c "wait-port db:3306 && node index.js"
-    env_file: .env
     environment:
-      NODE_ENV: production
-      DB_HOST: db
-      DB_PORT: 3306
-    volumes:
-      - .:/app        
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: kaia_db
+      MYSQL_USER: enzo
+      MYSQL_PASSWORD: Enziitho13579
     ports:
-      - "3000:3000"
-    depends_on:
-      - db
+      - "3307:3306"
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8080:8080

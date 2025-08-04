@@ -1,0 +1,35 @@
+{{!-- alertas --}}
+{{> flashAlerts}}
+
+<h1 class="mb-3">
+  Ejecutivos
+  <a href="/admin/ejecutivos/new" class="btn btn-success btn-sm">➕ Nuevo</a>
+</h1>
+
+<div class="table-responsive">
+  <table data-auto="dt" class="table table-striped align-middle">
+    <thead>
+      <tr><th>ID</th><th>Nombre</th><th>Teléfono</th><th>Email</th><th>Clientes</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{#each ejecutivos}}
+        <tr>
+          <td>{{id}}</td>
+          <td>{{nombre}}</td>
+          <td>{{phone}}</td>
+          <td>{{email}}</td>
+          <td>{{clientes}}</td>
+          <td>
+            <a href="/admin/ejecutivos/{{id}}/edit" class="btn btn-sm btn-primary">Editar</a>
+            <button class="btn btn-sm btn-danger btn-confirmar-eliminar"
+                    data-id="{{id}}" data-nombre="{{nombre}}"
+                    data-entity="ejecutivo" data-url="/admin/ejecutivos">🗑</button>
+          </td>
+        </tr>
+      {{/each}}
+    </tbody>
+  </table>
+</div>
+
+{{> modalConfirm}}
+<script src="/js/datatable-init.js" defer></script>

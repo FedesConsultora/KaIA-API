@@ -6,6 +6,7 @@ import swaggerJsdoc from 'swagger-jsdoc';
 import router from './routes/router.js';
 import methodOverride   from 'method-override';
 import adminRouter from './routes/adminRouter.js';
+import authRouter from './routes/authRouter.js';
 import 'dotenv/config';
 import path from 'path';
 import 'dotenv/config';
@@ -13,7 +14,11 @@ import compression from 'compression';
 import { create } from 'express-handlebars';
 import session from 'express-session';
 import flash   from 'connect-flash';
-
+import cookieParser from 'cookie-parser';
+import authDesdeCookie from './middlewares/authDesdeCookie.js';
+import hbsHelpers from './helpers/handlebars.js';
+import { allowInsecurePrototypeAccess } from '@handlebars/allow-prototype-access';
+import Handlebars from 'handlebars';
 
 const app = express();
 /* ---------- middlewares base ---------- */
@@ -22,6 +27,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(methodOverride('_method'));
 app.use(express.static(path.resolve('public')));
+
+
+app.use(cookieParser());
+app.use(authDesdeCookie);
 
 // Rate-limit global
 const apiLimiter = rateLimit({
@@ -36,7 +45,9 @@ const hbs = create({
   extname: '.hbs',
   defaultLayout: 'main',
   layoutsDir: path.resolve('src/views/layouts'),
-  partialsDir: path.resolve('src/views/partials')
+  partialsDir: path.resolve('src/views/partials'),
+  helpers: hbsHelpers,
+  handlebars: allowInsecurePrototypeAccess(Handlebars)
 });
 
 app.engine('hbs', hbs.engine);
@@ -107,5 +118,7 @@ app.use('/api-docs', swaggerUI.serve, swaggerUI.setup(swaggerSpec));
 // Rutas
 app.use('/api', router);
 app.use('/admin', adminRouter);
+app.use('/auth', authRouter);
+
 
 export default app;

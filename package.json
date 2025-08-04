@@ -14,9 +14,12 @@
     "dev:docker:rebuild": "docker compose -f docker-compose.yml -f docker-compose.dev.yml build --no-cache && docker compose -f docker-compose.yml -f docker-compose.dev.yml up"
   },
   "dependencies": {
+    "@handlebars/allow-prototype-access": "^1.0.5",
+    "bcrypt": "^6.0.0",
     "bootstrap": "5.3",
     "compression": "^1.8.0",
     "connect-flash": "^0.1.1",
+    "cookie-parser": "^1.4.7",
     "cross-env": "^7.0.3",
     "datatables.net": "^2.3.2",
     "datatables.net-bs5": "^2.3.2",

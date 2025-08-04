@@ -3,10 +3,7 @@
 const path = require('path');
 
 /* ────────── 1. Selección dinámica del .env ────────── */
-const envFile = process.env.NODE_ENV === 'production'
-  ? '.env.prod'
-  : '.env.dev';                        // default → desarrollo
-
+const envFile = '.env';
 require('dotenv').config({ path: path.resolve(__dirname, '..', envFile) });
 
 /* ────────── 2. Config común ────────── */

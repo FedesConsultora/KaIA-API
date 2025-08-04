@@ -1,25 +1,127 @@
-<h1 class="mb-3">Usuarios <a href="/admin/usuarios/new" class="btn btn-success btn-sm">➕ Nuevo</a></h1>
+{{!-- Alertas flash --}}
+{{#if success}}
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    ✅ {{success}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
 
-<table class="table table-striped">
-  <thead><tr>
-    <th>ID</th><th>Nombre</th><th>Teléfono</th><th>CUIT</th><th>Email</th><th>Rol</th><th></th>
-  </tr></thead>
-  <tbody>
-  {{#each usuarios}}
-    <tr>
-      <td>{{id}}</td>
-      <td>{{nombre}}</td>
-      <td>{{phone}}</td>
-      <td>{{cuit}}</td>
-      <td>{{email}}</td>
-      <td>{{role}}</td>
-      <td>
-        <a href="/admin/usuarios/{{id}}/edit" class="btn btn-sm btn-primary">Editar</a>
-        <form method="POST" action="/admin/usuarios/{{id}}?_method=DELETE" class="d-inline">
-          <button class="btn btn-sm btn-danger" onclick="return confirm('¿Eliminar usuario?')">🗑</button>
-        </form>
-      </td>
-    </tr>
-  {{/each}}
-  </tbody>
-</table>
+{{#if error}}
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    ❌ {{error}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
+
+<h1 class="mb-3">
+  Usuarios
+  <a href="/admin/usuarios/new" class="btn btn-success btn-sm">➕ Nuevo</a>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
+    ⬆️ Importar Excel
+  </button>
+</h1>
+
+<div class="table-responsive">
+  <table data-auto="dt" class="table table-striped align-middle">
+    <thead>
+      <tr>
+        <th>ID</th><th>Nombre</th><th>Teléfono</th><th>CUIT</th><th>Email</th><th>Rol</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each usuarios}}
+        <tr>
+          <td>{{id}}</td>
+          <td>{{nombre}}</td>
+          <td>{{phone}}</td>
+          <td>{{cuit}}</td>
+          <td>{{email}}</td>
+          <td>{{role}}</td>
+          <td>
+            <a href="/admin/usuarios/{{id}}/edit" class="btn btn-sm btn-primary">Editar</a>
+            <button
+              class="btn btn-sm btn-danger btn-confirmar-eliminar"
+              data-id="{{id}}"
+              data-nombre="{{nombre}}"
+              data-entity="usuario"
+              data-url="/admin/usuarios"
+            >
+              🗑
+            </button>
+          </td>
+        </tr>
+      {{/each}}
+    </tbody>
+  </table>
+</div>
+
+{{!-- Modal de confirmación genérico --}}
+{{> modalConfirm }}
+
+<!-- Modal Importar Excel -->
+<div class="modal fade" id="modalExcel" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form action="/admin/usuarios/import-excel" method="POST" enctype="multipart/form-data"
+        onsubmit="const btn = this.querySelector('button[type=submit]'); btn.disabled = true; btn.querySelector('.spinner-border').classList.remove('d-none');">
+
+        <div class="modal-header">
+          <h5 class="modal-title">Importar usuarios desde Excel</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Archivo .xlsx</label>
+            <input type="file" name="archivo" accept=".xlsx" class="form-control" required>
+            <small class="text-muted">Debe contener columnas válidas según el modelo de usuario.</small>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          {{> spinnerSubmitBtn label="Importar" }}
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const modalEl = document.getElementById('confirmModal');
+    if (!modalEl) return;
+
+    const modal = new bootstrap.Modal(modalEl);
+    const confirmForm = document.getElementById('confirm-form');
+    const confirmNombre = document.getElementById('confirm-nombre');
+    const confirmEntity = document.getElementById('confirm-entity');
+
+    document.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('.btn-confirmar-eliminar');
+      if (!btn) return;
+
+      const id     = btn.dataset.id;
+      const nombre = btn.dataset.nombre;
+      const entity = btn.dataset.entity ?? 'registro';
+      const url    = btn.dataset.url;
+
+      confirmNombre.textContent = nombre;
+      confirmEntity.textContent = entity;
+      confirmForm.action = `${url}/${id}?_method=DELETE`;
+
+      modal.show();
+    });
+
+    // Activar DataTables si está disponible
+    const dtTable = document.querySelector('table[data-auto="dt"]');
+    if (window.jQuery && dtTable) {
+      $(dtTable).DataTable({
+        language: {
+          url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/es-ES.json'
+        },
+        order: [[1, 'asc']]
+      });
+    }
+  });
+</script>

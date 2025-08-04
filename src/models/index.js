@@ -10,6 +10,7 @@ import { ProductoPromocion } from './ProductoPromocion.js';
 import { Compra }           from './Compra.js';
 import { Feedback }         from './Feedback.js';
 import { PrecioLog }        from './PrecioLog.js';
+import { EjecutivoCuenta } from './EjecutivoCuenta.js';
 
 /* ─── Asociaciones ────────────────────────────── */
 /** 1 : 1  (Usuario ↔ CuentaCorriente) */
@@ -23,6 +24,9 @@ Compra.belongsTo(Usuario,         { foreignKey: 'usuarioId' });
 /** 1 : N  (Producto ↔ Compra) */
 Producto.hasMany(Compra,          { foreignKey: 'productoId' });
 Compra.belongsTo(Producto,        { foreignKey: 'productoId' });
+/** 1 : N  (EjecutivoCuenta ↔ Usuario) */
+EjecutivoCuenta.hasMany(Usuario,    { foreignKey: 'ejecutivoId' });
+Usuario.belongsTo(EjecutivoCuenta,  { foreignKey: 'ejecutivoId' });
 
 /** 1 : N  (Promocion ↔ Compra) – promo aplicada en la compra */
 Promocion.hasMany(Compra,         { foreignKey: 'promo_aplicada' });
@@ -63,5 +67,6 @@ export {
   ProductoPromocion,
   Compra,
   Feedback,
-  PrecioLog,        // → quitá este export si no usás premios en KaIA
+  PrecioLog, 
+  EjecutivoCuenta
 };

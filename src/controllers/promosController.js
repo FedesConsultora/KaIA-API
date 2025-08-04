@@ -1,24 +1,21 @@
-export const getPromosByProducto = (req, res) => {
+import { Op } from 'sequelize';
+import { Producto, Promocion } from '../models/index.js'; 
+export const getPromosByProducto = async (req, res) => {
   const { id } = req.params;
 
-  // Simulación: solo el producto 1 tiene promos activas
-  if (id === '1') {
-    return res.json([
-      {
-        id: 1,
-        nombre: "Promo 2x1",
-        tipo: "2x1",
-        fin: "2025-07-31"
+  const prod = await Producto.findByPk(id, {
+    include: {
+      model: Promocion,
+      where: {
+        vigente: true,
+        vigencia_desde: { [Op.lte]: new Date() },
+        vigencia_hasta: { [Op.gte]: new Date() }
       },
-      {
-        id: 2,
-        nombre: "Regalo por 5 unidades",
-        tipo: "regalo",
-        fin: "2025-08-15"
-      }
-    ]);
-  }
+      required: false,
+      through: { attributes: [] }
+    }
+  });
 
-  // Otros productos no tienen promos activas
-  return res.json([]);
+  if (!prod) return res.status(404).json({ msg: 'Producto no encontrado' });
+  res.json(prod.Promocions);
 };

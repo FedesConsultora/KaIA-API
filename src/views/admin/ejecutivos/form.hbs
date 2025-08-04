@@ -1,0 +1,27 @@
+<h1>{{#if isEdit}}Editar{{else}}Nuevo{{/if}} ejecutivo</h1>
+
+<form action="/admin/ejecutivos{{#if isEdit}}/{{ejecutivo.id}}?_method=PUT{{/if}}"
+      method="POST" class="row g-3">
+
+  <div class="col-md-6">
+    <label class="form-label">Nombre</label>
+    <input name="nombre" class="form-control" value="{{ejecutivo.nombre}}" required>
+  </div>
+
+  <div class="col-md-6">
+    <label class="form-label">Teléfono</label>
+    <input name="phone" class="form-control" value="{{ejecutivo.phone}}">
+  </div>
+
+  <div class="col-md-6">
+    <label class="form-label">Email</label>
+    <input name="email" type="email" class="form-control" value="{{ejecutivo.email}}">
+  </div>
+
+  <div class="col-12">
+    <button class="btn btn-primary">Guardar</button>
+    <a class="btn btn-secondary" href="/admin/ejecutivos">Volver</a>
+  </div>
+</form>
+
+{{> flashAlerts}}

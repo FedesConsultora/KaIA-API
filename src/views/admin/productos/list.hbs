@@ -1,15 +1,25 @@
+{{!-- Alertas flash --}}
+{{#if success}}
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    ✅ {{success}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
+
+{{#if error}}
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    ❌ {{error}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
+
 <h1 class="mb-3">
   Productos
-  <a href="/admin/productos/new"  class="btn btn-success btn-sm">➕ Nuevo</a>
-  <!-- Botón que abre modal -->
+  <a href="/admin/productos/new" class="btn btn-success btn-sm">➕ Nuevo</a>
   <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
     ⬆️ Importar Excel
   </button>
 </h1>
-
-{{!-- Mensajes flash --}}
-{{#if success}}<div class="alert alert-success">{{success}}</div>{{/if}}
-{{#if error}}  <div class="alert alert-danger">{{error}}</div>{{/if}}
 
 <div class="table-responsive">
   <table data-auto="dt" class="table table-striped align-middle">
@@ -31,9 +41,15 @@
         <td>{{#if debaja}}✔{{else}}—{{/if}}</td>
         <td>
           <a class="btn btn-sm btn-primary" href="/admin/productos/{{id}}/edit">Editar</a>
-          <form method="POST" action="/admin/productos/{{id}}?_method=DELETE" class="d-inline">
-            <button class="btn btn-sm btn-danger" onclick="return confirm('¿Eliminar producto?')">🗑</button>
-          </form>
+          <button
+            class="btn btn-sm btn-danger btn-confirmar-eliminar"
+            data-id="{{id}}"
+            data-nombre="{{nombre}}"
+            data-entity="producto"
+            data-url="/admin/productos"
+          >
+            🗑
+          </button>
         </td>
       </tr>
     {{/each}}
@@ -41,7 +57,10 @@
   </table>
 </div>
 
-<!-- Modal Bootstrap -->
+{{!-- Partial: Modal confirmación --}}
+{{> modalConfirm }}
+
+<!-- Modal Importación Excel -->
 <div class="modal fade" id="modalExcel" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -70,3 +89,28 @@
     </div>
   </div>
 </div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('click', (event) => {
+      const btn = event.target.closest('.btn-confirmar-eliminar');
+      if (!btn) return;
+
+      const id     = btn.dataset.id;
+      const nombre = btn.dataset.nombre;
+      const entity = btn.dataset.entity || 'registro';
+      const url    = btn.dataset.url;
+
+      const confirmNombre = document.getElementById('confirm-nombre');
+      const confirmEntity = document.getElementById('confirm-entity');
+      const confirmForm   = document.getElementById('confirm-form');
+
+      confirmNombre.textContent = nombre;
+      confirmEntity.textContent = entity;
+      confirmForm.action = `${url}/${id}?_method=DELETE`;
+
+      const modal = new bootstrap.Modal(document.getElementById('confirmModal'));
+      modal.show();
+    });
+  });
+</script>

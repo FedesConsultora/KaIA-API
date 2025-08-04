@@ -90,67 +90,151 @@ export const getPromosByProducto = async (req, res) => {
   }
 };
 
+
 export const cargarProductosDesdeExcel = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ msg: 'No se adjuntó archivo .xlsx' });
+    if (!req.file) return res.status(400).json({ msg: 'Adjuntá un .xlsx' });
+
+    const wb    = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+
+    const range  = XLSX.utils.decode_range(sheet['!ref']);
+    const merges = sheet['!merges'] || [];
+    const rows   = [];
+
+    // --- Leer filas considerando celdas mergeadas ---
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      const row = [];
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+        let cell = sheet[cellAddress]?.v ?? null;
+
+        if (cell === null) {
+          const merge = merges.find(m =>
+            R >= m.s.r && R <= m.e.r && C >= m.s.c && C <= m.e.c
+          );
+          if (merge) {
+            const mainCell = XLSX.utils.encode_cell({ r: merge.s.r, c: merge.s.c });
+            cell = sheet[mainCell]?.v ?? null;
+          }
+        }
+
+        row.push(cell);
+      }
+      rows.push(row);
     }
 
-    /* 1. Leemos la planilla */
-    const wb     = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const sheet  = wb.Sheets[wb.SheetNames[0]];
-    const rows   = XLSX.utils.sheet_to_json(sheet, { defval: null }); // defval → null evita undefined
+    console.log('🔹 Filas totales leídas del Excel:', rows.length);
 
-    if (!rows.length) {
-      return res.status(400).json({ msg: 'La hoja está vacía' });
-    }
+    // Normalizador de encabezados → sin tildes, sin espacios
+    const norm = s => (s ?? '')
+      .toString()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '')
+      .trim()
+      .toUpperCase();
 
-    /* 2. Preparo un mapa encabezado→atributo del modelo */
-    //  Ej: { IDARTICULO: 'id_articulo', DESCRIPCION: 'nombre', ... }
+    // Mapeo actualizado para el nuevo Excel
     const map = {
       IDARTICULO   : 'id_articulo',
       DESCRIPCION  : 'nombre',
       COSTO        : 'costo',
       PRECIO1      : 'precio',
       PRESENTACION : 'presentacion',
-      PROVEEDOR    : 'proveedor',
       MARCA        : 'marca',
       RUBRO        : 'rubro',
       FAMILIA      : 'familia',
-      DEBAJA       : 'debaja',
-      CANTIDAD     : 'cantidad',
-      STOCKMINIMO  : 'stockMin',
-      STOCKMAXIMO  : 'stockMax',
+      PROVEEDOR    : 'proveedor',
       CODIGOBARRAS : 'codBarras',
-      OBSERVACIONES: 'observaciones',
-      PUNTOS       : 'puntos',
-      PROMO        : 'promo'
+      DEBAJA       : 'debaja',
+      PUBLICAR     : 'visible',
+      DISP         : 'cantidad',
+      OBSERVACIONES: 'observaciones'
     };
 
-    /* 3. Transformo cada fila a la forma que entiende Sequelize */
-    const productos = rows
-      .filter(r => r.DESCRIPCION) // ignoramos filas sin nombre
-      .map(r => {
-        const obj = {};
-        for (const [col, attr] of Object.entries(map)) {
-          obj[attr] = r[col] ?? null;
+    // Buscar fila de encabezados
+    const headerRowIndex = rows.findIndex(r => r.some(c => c));
+    const headersNorm = rows[headerRowIndex].map(norm);
+
+    console.log('🔹 Encabezados normalizados:', headersNorm);
+
+    const dataRows = rows.slice(headerRowIndex + 1);
+
+    // Forward-fill vertical para merges
+    const prevVals = Array(headersNorm.length).fill(null);
+    const filledRows = dataRows.map(row =>
+      row.map((cell, idx) => {
+        if (cell !== null && cell !== '') {
+          prevVals[idx] = cell;
+          return cell;
         }
+        return prevVals[idx];
+      })
+    );
+
+    const idxDescripcion = headersNorm.findIndex(h => h === 'DESCRIPCION');
+
+    const parseDecimal = (val) => {
+      if (val === null || val === '') return null;
+      return parseFloat(
+        String(val).replace(/\./g, '').replace(',', '.')
+      ) || null;
+    };
+
+    const productos = filledRows
+      .filter(r => idxDescripcion >= 0 && r[idxDescripcion]) // Solo filas con descripción
+      .map((r, i) => {
+        const obj = {};
+        r.forEach((val, idx) => {
+          const attr = map[headersNorm[idx]];
+          if (!attr || val === null || val === '') return;
+
+          // Casting
+          if (['costo','precio'].includes(attr)) {
+            val = parseDecimal(val);
+          } else if (['cantidad'].includes(attr)) {
+            val = parseInt(val, 10) || 0;
+          } else if (attr === 'debaja') {
+            val = ['1','TRUE','SI','SÍ'].includes(norm(val));
+          } else if (attr === 'visible') {
+            val = ['1','TRUE','SI','SÍ'].includes(norm(val));
+          } else if (attr === 'codBarras') {
+            val = String(val).split('.')[0]; // Aseguramos string sin decimales
+          }
+
+          obj[attr] = val;
+        });
+
+        // Generar ID automático si falta
+        if (!obj.id_articulo) obj.id_articulo = `AUTO-${Date.now()}-${i}`;
         return obj;
       });
 
-    if (!productos.length) {
-      return res.status(400).json({ msg: 'Ninguna fila válida para importar' });
-    }
+    console.log('🔹 Productos válidos parseados:', productos.length);
+    console.log('🔹 Ejemplo primeras 5 filas:', productos.slice(0, 5));
 
-    /* 4. Inserto / actualizo en bloque */
+    if (!productos.length)
+      return res.status(400).json({ msg: 'Ninguna fila válida para importar' });
+
+    const updatable = [
+      'costo','precio','presentacion','proveedor','marca','rubro','familia',
+      'debaja','cantidad','codBarras','observaciones','visible'
+    ];
+
     await Producto.bulkCreate(productos, {
-      updateOnDuplicate: Object.values(map),   // campos que se pisan si ya existe id_articulo
-      validate         : true
+      updateOnDuplicate: updatable,
+      validate: true
     });
 
     res.json({ msg: 'Carga exitosa', total: productos.length });
   } catch (err) {
-    console.error('Error al cargar productos:', err);
-    res.status(500).json({ msg: 'Error interno al procesar el Excel' });
+    console.error('⛔ Error al cargar productos:', err);
+    if (err.errors) {
+      err.errors.forEach(e => console.error('Detalle:', e.message, e.value));
+    }
+    res.status(500).json({ msg: 'Error interno al procesar el Excel', error: err.message });
   }
 };
+
+
+

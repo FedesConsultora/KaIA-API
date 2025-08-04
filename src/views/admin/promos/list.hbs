@@ -1,3 +1,18 @@
+{{!-- Alertas flash --}}
+{{#if success}}
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    ✅ {{success}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
+
+{{#if error}}
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    ❌ {{error}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
+
 <h1 class="mb-3">
   Promociones
   <a href="/admin/promos/new" class="btn btn-success btn-sm">➕ Nueva</a>
@@ -6,12 +21,8 @@
   </button>
 </h1>
 
-{{!-- Mensajes flash --}}
-{{#if success}}<div class="alert alert-success">{{success}}</div>{{/if}}
-{{#if error}}  <div class="alert alert-danger">{{error}}</div>{{/if}}
-
 <div class="table-responsive">
-  <table class="table table-striped align-middle">
+  <table data-auto="dt" class="table table-striped align-middle">
     <thead>
       <tr>
         <th>ID</th>
@@ -34,9 +45,15 @@
           <td>{{vigencia_hasta}}</td>
           <td>
             <a href="/admin/promos/{{id}}/edit" class="btn btn-sm btn-primary">Editar</a>
-            <form method="POST" action="/admin/promos/{{id}}?_method=DELETE" class="d-inline">
-              <button class="btn btn-sm btn-danger" onclick="return confirm('¿Eliminar promo?')">🗑</button>
-            </form>
+            <button
+              class="btn btn-sm btn-danger btn-confirmar-eliminar"
+              data-id="{{id}}"
+              data-nombre="{{nombre}}"
+              data-entity="promoción"
+              data-url="/admin/promos"
+            >
+              🗑
+            </button>
           </td>
         </tr>
       {{/each}}
@@ -44,7 +61,10 @@
   </table>
 </div>
 
-<!-- Modal Bootstrap para importar Excel -->
+{{!-- Partial: Modal confirmación --}}
+{{> modalConfirm }}
+
+<!-- Modal Importación Excel -->
 <div class="modal fade" id="modalExcel" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -73,3 +93,42 @@
     </div>
   </div>
 </div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const modalEl = document.getElementById('confirmModal');
+    if (!modalEl) return;
+
+    const modal = new bootstrap.Modal(modalEl);
+    const confirmForm = document.getElementById('confirm-form');
+    const confirmNombre = document.getElementById('confirm-nombre');
+    const confirmEntity = document.getElementById('confirm-entity');
+
+    document.addEventListener('click', (event) => {
+      const btn = event.target.closest('.btn-confirmar-eliminar');
+      if (!btn) return;
+
+      const id     = btn.dataset.id;
+      const nombre = btn.dataset.nombre;
+      const entity = btn.dataset.entity || 'registro';
+      const url    = btn.dataset.url;
+
+      confirmNombre.textContent = nombre;
+      confirmEntity.textContent = entity;
+      confirmForm.action = `${url}/${id}?_method=DELETE`;
+
+      modal.show();
+    });
+
+    // Activar DataTables si está disponible
+    const dtTable = document.querySelector('table[data-auto="dt"]');
+    if (window.jQuery && dtTable) {
+      $(dtTable).DataTable({
+        language: {
+          url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/es-ES.json'
+        },
+        order: [[1, 'asc']]
+      });
+    }
+  });
+</script>

@@ -1,4 +1,19 @@
-<h1>{{#if isEdit}}Editar{{else}}Nueva{{/if}} promoción</h1>
+{{!-- Alertas flash --}}
+{{#if success}}
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    ✅ {{success}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
+
+{{#if error}}
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    ❌ {{error}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
+
+<h1 class="mb-4">{{#if isEdit}}Editar{{else}}Nueva{{/if}} promoción</h1>
 
 <form
   action="/admin/promos{{#if isEdit}}/{{promo.id}}?_method=PUT{{/if}}"
@@ -6,23 +21,31 @@
   class="row g-3"
 >
 
-  <!-- Columna 1 -->
-  <div class="col-md-6">
+  <div class="col-md-8">
     <label class="form-label">Nombre *</label>
-    <input name="nombre" class="form-control" value="{{promo.nombre}}" required>
+    <input name="nombre" class="form-control" required value="{{promo.nombre}}">
   </div>
 
-  <div class="col-md-3">
+  <div class="col-md-4">
     <label class="form-label">Tipo</label>
     <input name="tipo" class="form-control" value="{{promo.tipo}}">
   </div>
 
-  <div class="col-md-3">
+  <div class="col-12">
+    <label class="form-label">Detalle</label>
+    <textarea name="detalle" class="form-control" rows="3">{{promo.detalle}}</textarea>
+  </div>
+
+  <div class="col-12">
+    <label class="form-label">Regalo</label>
+    <textarea name="regalo" class="form-control" rows="2">{{promo.regalo}}</textarea>
+  </div>
+
+  <div class="col-md-4">
     <label class="form-label">Presentación</label>
     <input name="presentacion" class="form-control" value="{{promo.presentacion}}">
   </div>
 
-  <!-- Columna 2 -->
   <div class="col-md-4">
     <label class="form-label">Especie</label>
     <input name="especie" class="form-control" value="{{promo.especie}}">
@@ -33,47 +56,51 @@
     <input name="laboratorio" class="form-control" value="{{promo.laboratorio}}">
   </div>
 
+  <div class="col-12">
+    <label class="form-label">Productos asociados (texto)</label>
+    <textarea name="productos_txt" class="form-control" rows="2">{{promo.productos_txt}}</textarea>
+  </div>
+
   <div class="col-md-4">
     <label class="form-label">Stock disponible</label>
     <input name="stock_disponible" type="number" min="0" class="form-control" value="{{promo.stock_disponible}}">
   </div>
 
-  <!-- Fechas & Vigencia -->
-  <div class="col-md-3">
-    <label class="form-label">Desde</label>
+  <div class="col-md-4">
+    <label class="form-label">Vigencia desde</label>
     <input name="vigencia_desde" type="date" class="form-control" value="{{promo.vigencia_desde_iso}}">
   </div>
 
-  <div class="col-md-3">
-    <label class="form-label">Hasta</label>
+  <div class="col-md-4">
+    <label class="form-label">Vigencia hasta</label>
     <input name="vigencia_hasta" type="date" class="form-control" value="{{promo.vigencia_hasta_iso}}">
   </div>
 
-  <div class="col-md-3">
-    <label class="form-label">¿Vigente?</label>
-    <select name="vigente" class="form-select">
-      <option value="1" {{#if promo.vigente}}selected{{/if}}>Sí</option>
-      <option value="0" {{#unless promo.vigente}}selected{{/unless}}>No</option>
-    </select>
+  <div class="col-md-2 form-check">
+    <input name="vigente" class="form-check-input" type="checkbox" id="chkVigente"
+      {{#if promo.vigente}}checked{{/if}}>
+    <label class="form-check-label" for="chkVigente">Vigente</label>
   </div>
 
-  <!-- Textos largos -->
-  <div class="col-12">
-    <label class="form-label">Detalle (visible para el vete)</label>
-    <textarea name="detalle" rows="3" class="form-control">{{promo.detalle}}</textarea>
-  </div>
+  {{!-- Solo si se cargó la lista de productos disponibles --}}
+  {{#if productos}}
+    <div class="col-12">
+      <label class="form-label">Productos relacionados</label>
+      <div class="row row-cols-2">
+        {{#each productos}}
+          <div class="form-check col">
+            <input class="form-check-input" type="checkbox" name="productosIds" value="{{id}}"
+              id="prod_{{id}}"
+              {{#if (includes ../promo.productos id)}}checked{{/if}}>
+            <label class="form-check-label" for="prod_{{id}}">
+              {{nombre}}
+            </label>
+          </div>
+        {{/each}}
+      </div>
+    </div>
+  {{/if}}
 
-  <div class="col-12">
-    <label class="form-label">Regalo / Beneficio</label>
-    <textarea name="regalo" rows="2" class="form-control">{{promo.regalo}}</textarea>
-  </div>
-
-  <div class="col-12">
-    <label class="form-label">Productos (texto libre)</label>
-    <textarea name="productos_txt" rows="2" class="form-control">{{promo.productos_txt}}</textarea>
-  </div>
-
-  <!-- Botones -->
   <div class="col-12 mt-3">
     <button class="btn btn-primary">Guardar</button>
     <a href="/admin/promos" class="btn btn-secondary">Volver</a>

@@ -5,27 +5,59 @@
     <label class="form-label">Nombre</label>
     <input name="nombre" class="form-control" value="{{usuario.nombre}}" required>
   </div>
+
   <div class="col-md-6">
     <label class="form-label">Teléfono (WhatsApp)</label>
     <input name="phone" class="form-control" value="{{usuario.phone}}" required>
   </div>
+
   <div class="col-md-6">
     <label class="form-label">CUIT</label>
     <input name="cuit" class="form-control" value="{{usuario.cuit}}">
   </div>
+
   <div class="col-md-6">
     <label class="form-label">Email</label>
     <input name="email" type="email" class="form-control" value="{{usuario.email}}">
   </div>
+
   <div class="col-md-4">
     <label class="form-label">Rol</label>
-    <select name="role" class="form-select">
+    <select name="role" class="form-select" id="role-select">
       <option value="vet" {{#if (eq usuario.role 'vet')}}selected{{/if}}>Veterinario</option>
       <option value="admin" {{#if (eq usuario.role 'admin')}}selected{{/if}}>Administrador</option>
     </select>
   </div>
+
+  {{#if (eq usuario.role 'admin')}}
+    <div class="col-md-6" id="password-group">
+      <label class="form-label">Contraseña</label>
+      <input name="password" type="password" class="form-control" placeholder="Solo para administradores">
+    </div>
+  {{else}}
+    <div class="col-md-6" id="password-group" style="display:none;">
+      <label class="form-label">Contraseña</label>
+      <input name="password" type="password" class="form-control" placeholder="Solo para administradores">
+    </div>
+  {{/if}}
+
   <div class="col-12">
     <button class="btn btn-primary">Guardar</button>
     <a class="btn btn-secondary" href="/admin/usuarios">Volver</a>
   </div>
 </form>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const roleSelect = document.getElementById('role-select');
+    const passwordGroup = document.getElementById('password-group');
+
+    roleSelect.addEventListener('change', () => {
+      if (roleSelect.value === 'admin') {
+        passwordGroup.style.display = 'block';
+      } else {
+        passwordGroup.style.display = 'none';
+      }
+    });
+  });
+</script>

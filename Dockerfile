@@ -1,3 +1,4 @@
+# Dockerfile.dev
 # Etapa de build
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -18,4 +19,3 @@ RUN npm install -g wait-port
 
 # Exponemos puerto
 EXPOSE 3000
-
