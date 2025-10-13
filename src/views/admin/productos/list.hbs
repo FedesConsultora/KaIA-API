@@ -1,30 +1,36 @@
-{{!-- Alertas flash --}}
-{{#if success}}
-  <div class="alert alert-success alert-dismissible fade show" role="alert">
-    ✅ {{success}}
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-  </div>
-{{/if}}
-
-{{#if error}}
-  <div class="alert alert-danger alert-dismissible fade show" role="alert">
-    ❌ {{error}}
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-  </div>
-{{/if}}
-
 <h1 class="mb-3">
   Productos
   <a href="/admin/productos/new" class="btn btn-success btn-sm">➕ Nuevo</a>
   <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
     ⬆️ Importar Excel
   </button>
+  <button class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modalPurge">
+    🧨 Vaciar catálogo
+  </button>
 </h1>
+
+{{!-- Barra de acciones masivas --}}
+<form id="bulk-form" action="/admin/productos/bulk" method="POST" class="row g-2 align-items-center mb-3">
+  <div class="col-auto">
+    <select name="action" class="form-select form-select-sm" required>
+      <option value="" selected>— Acción masiva —</option>
+      <option value="delete">🗑 Eliminar seleccionados</option>
+      <option value="show">👁 Mostrar (visible=true)</option>
+      <option value="hide">🙈 Ocultar (visible=false)</option>
+      <option value="alta">⬆️ Marcar en alta (debaja=false)</option>
+      <option value="baja">⬇️ Marcar de baja (debaja=true)</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-secondary">Aplicar</button>
+  </div>
+</form>
 
 <div class="table-responsive">
   <table data-auto="dt" class="table table-striped align-middle">
     <thead>
       <tr>
+        <th><input type="checkbox" id="chk-all"></th>
         <th>ID</th><th>Código</th><th>Nombre</th><th>Precio</th>
         <th>Stock</th><th>Visible</th><th>De baja</th><th></th>
       </tr>
@@ -32,6 +38,7 @@
     <tbody>
     {{#each productos}}
       <tr>
+        <td><input type="checkbox" class="chk-row" value="{{id}}"></td>
         <td>{{id}}</td>
         <td>{{id_articulo}}</td>
         <td>{{nombre}}</td>
@@ -47,9 +54,7 @@
             data-nombre="{{nombre}}"
             data-entity="producto"
             data-url="/admin/productos"
-          >
-            🗑
-          </button>
+          >🗑</button>
         </td>
       </tr>
     {{/each}}
@@ -57,7 +62,6 @@
   </table>
 </div>
 
-{{!-- Partial: Modal confirmación --}}
 {{> modalConfirm }}
 
 <!-- Modal Importación Excel -->
@@ -66,12 +70,10 @@
     <div class="modal-content">
       <form action="/admin/productos/import-excel" method="POST" enctype="multipart/form-data"
         onsubmit="const btn = this.querySelector('button[type=submit]'); btn.disabled = true; btn.querySelector('.spinner-border').classList.remove('d-none');">
-
         <div class="modal-header">
           <h5 class="modal-title">Importar desde Excel</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
-
         <div class="modal-body">
           <div class="mb-3">
             <label class="form-label">Archivo .xlsx</label>
@@ -79,19 +81,81 @@
             <small class="text-muted">Se tomarán solo las columnas válidas del modelo.</small>
           </div>
         </div>
-
         <div class="modal-footer">
           {{> spinnerSubmitBtn label="Importar" }}
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         </div>
-
       </form>
     </div>
   </div>
 </div>
 
+<!-- Modal Purge -->
+<div class="modal fade" id="modalPurge" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content border-danger">
+      <form action="/admin/productos/purge" method="POST"
+        onsubmit="return confirm('Esta acción eliminará TODO el catálogo. ¿Confirmás?');">
+        <div class="modal-header">
+          <h5 class="modal-title text-danger">Vaciar catálogo (acción destructiva)</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <p>Escribí <strong>ELIMINAR-TODO</strong> para confirmar.</p>
+          <input class="form-control" name="confirm" required placeholder="ELIMINAR-TODO">
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-danger">🧨 Vaciar catálogo</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{{!-- Alertas flash --}}
+{{#if success}}
+  <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
+    ✅ {{success}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
+{{#if error}}
+  <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
+    ❌ {{error}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
+
 <script>
+  // Selección masiva
   document.addEventListener('DOMContentLoaded', () => {
+    const chkAll = document.getElementById('chk-all');
+    const chkRows = [...document.querySelectorAll('.chk-row')];
+    const bulkForm = document.getElementById('bulk-form');
+
+    chkAll?.addEventListener('change', () => {
+      chkRows.forEach(c => c.checked = chkAll.checked);
+    });
+
+    bulkForm?.addEventListener('submit', (e) => {
+      // Inyectamos inputs ids[]
+      const selected = chkRows.filter(c => c.checked).map(c => c.value);
+      if (!selected.length) {
+        e.preventDefault();
+        alert('Seleccioná al menos un producto.');
+        return false;
+      }
+      selected.forEach(id => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'ids';
+        input.value = id;
+        bulkForm.appendChild(input);
+      });
+    });
+
+    // Modal confirmación por fila (ya lo tenías)
     document.addEventListener('click', (event) => {
       const btn = event.target.closest('.btn-confirmar-eliminar');
       if (!btn) return;

@@ -1,28 +1,52 @@
 // src/controllers/admin/productosController.js
-import { Producto, Promocion } from '../../models/index.js';
+import { sequelize, Producto, Promocion, ProductoPromocion } from '../../models/index.js';
+import { Op } from 'sequelize';
 import XLSX from 'xlsx';
 import multer from 'multer';
 
-/* ---------- Multer memoria ---------- */
 export const uploadExcel = multer().single('archivo');
 
-/* ─────────────────────────── Helpers ─────────────────────────── */
 const toBool = (val) => val === 'on' || val === 'true' || val === true;
 
 /* ─────────────────────── Listado (GET) ──────────────────────── */
 export const list = async (req, res) => {
-  const productosRaw = await Producto.findAll({
-    include: { model: Promocion, attributes: ['id', 'nombre'] },
-    order: [['nombre', 'ASC']]
-  });
+  const pageSize = Math.min(Math.max(parseInt(req.query.pageSize || '25', 10), 5), 200); // 5..200
+  const page     = Math.max(parseInt(req.query.page || '1', 10), 1);
+  const q        = (req.query.q || '').trim();
+  const sort     = ['nombre','precio','cantidad','id'].includes(req.query.sort) ? req.query.sort : 'nombre';
+  const dir      = req.query.dir === 'DESC' ? 'DESC' : 'ASC';
 
-  const productos = productosRaw.map(p => p.get({ plain: true }));
+  const where = q
+    ? {
+        [Op.and]: [
+          { visible: { [Op.in]: [true, false] } }, // no filtramos por visible en admin
+          {
+            [Op.or]: [
+              { nombre      : { [Op.like]: `%${q}%` } },
+              { presentacion: { [Op.like]: `%${q}%` } },
+              { marca       : { [Op.like]: `%${q}%` } },
+              { id_articulo : { [Op.like]: `%${q}%` } }
+            ]
+          }
+        ]
+      }
+    : {};
+
+  const { rows, count } = await Producto.findAndCountAll({
+    where,
+    order: [[sort, dir]],
+    limit: pageSize,
+    offset: (page - 1) * pageSize
+  });
 
   res.render('admin/productos/list', {
     title: 'Productos',
-    productos,
+    productos : rows.map(r => r.get({ plain: true })),
+    q, page, pageSize, sort, dir,
+    total     : count,
+    totalPages: Math.max(Math.ceil(count / pageSize), 1),
     success: req.flash('success'),
-    error: req.flash('error')
+    error  : req.flash('error')
   });
 };
 
@@ -55,8 +79,8 @@ export const create = async (req, res) => {
     nombre,
     precio,
     cantidad,
-    visible: visible === 'on',
-    debaja: debaja === 'on'
+    visible: toBool(visible),
+    debaja : toBool(debaja)
   });
 
   req.flash('success', `Producto ${nombre} creado con éxito`);
@@ -84,13 +108,69 @@ export const update = async (req, res) => {
   }
 };
 
-
 /* ───────────────────────── Delete ───────────────────────────── */
 export const remove = async (req, res) => {
   await Producto.destroy({ where: { id: req.params.id } });
   req.flash('success', 'Producto eliminado con éxito');
   res.redirect('/admin/productos');
 };
+
+/* Acciones masivas */
+export const bulkAction = async (req, res) => {
+  try {
+    let ids = req.body?.ids ?? [];
+    if (!Array.isArray(ids)) ids = [ids];
+    ids = ids.map(x => Number(x)).filter(Boolean);
+
+    const action = req.body?.action;
+    if (!ids.length) { req.flash('error', 'No seleccionaste productos.'); return res.redirect('/admin/productos'); }
+    if (!['delete','show','hide','alta','baja'].includes(action)) {
+      req.flash('error', 'Acción inválida.'); return res.redirect('/admin/productos');
+    }
+
+    if (action === 'delete') {
+      await ProductoPromocion.destroy({ where: { productoId: ids } });
+      await Producto.destroy({ where: { id: ids } });
+      req.flash('success', `Eliminados ${ids.length} productos.`);
+    }
+    if (action === 'show') { await Producto.update({ visible: true  }, { where: { id: ids } }); req.flash('success', `Marcados como visibles ${ids.length}.`); }
+    if (action === 'hide') { await Producto.update({ visible: false }, { where: { id: ids } }); req.flash('success', `Ocultados ${ids.length}.`); }
+    if (action === 'alta') { await Producto.update({ debaja: false }, { where: { id: ids } }); req.flash('success', `Marcados en alta ${ids.length}.`); }
+    if (action === 'baja') { await Producto.update({ debaja: true  }, { where: { id: ids } }); req.flash('success', `Marcados de baja ${ids.length}.`); }
+
+    res.redirect('/admin/productos');
+  } catch (err) {
+    console.error('bulkAction error:', err);
+    req.flash('error', 'No se pudo ejecutar la acción masiva');
+    res.redirect('/admin/productos');
+  }
+};
+
+
+/* Vaciar catálogo (purge) */
+export const purgeAll = async (req, res) => {
+  try {
+    if (req.body?.confirm !== 'ELIMINAR-TODO') {
+      req.flash('error', 'Debés escribir ELIMINAR-TODO para confirmar.');
+      return res.redirect('/admin/productos');
+    }
+
+    await sequelize.transaction(async (t) => {
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 0', { transaction: t });
+      await sequelize.query('TRUNCATE TABLE productos_promociones', { transaction: t });
+      await sequelize.query('TRUNCATE TABLE productos', { transaction: t });
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 1', { transaction: t });
+    });
+
+    req.flash('success', 'Catálogo vaciado por completo.');
+    res.redirect('/admin/productos');
+  } catch (err) {
+    console.error('purgeAll error:', err);
+    req.flash('error', 'No se pudo vaciar el catálogo.');
+    res.redirect('/admin/productos');
+  }
+};
+
 
 /* ─────────────────────── Importar Excel ─────────────────────── */
 export const importExcel = async (req, res) => {
@@ -107,7 +187,6 @@ export const importExcel = async (req, res) => {
     const merges = sheet['!merges'] || [];
     const rows   = [];
 
-    // --- Leer filas considerando celdas mergeadas ---
     for (let R = range.s.r; R <= range.e.r; ++R) {
       const row = [];
       for (let C = range.s.c; C <= range.e.c; ++C) {
@@ -123,15 +202,11 @@ export const importExcel = async (req, res) => {
             cell = sheet[mainCell]?.v ?? null;
           }
         }
-
         row.push(cell);
       }
       rows.push(row);
     }
 
-    console.log('🔹 Filas totales leídas del Excel:', rows.length);
-
-    // Normalizador de encabezados → sin tildes, sin espacios
     const norm = s => (s ?? '')
       .toString()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -139,7 +214,6 @@ export const importExcel = async (req, res) => {
       .trim()
       .toUpperCase();
 
-    // Mapeo actualizado para el nuevo Excel
     const map = {
       IDARTICULO   : 'id_articulo',
       DESCRIPCION  : 'nombre',
@@ -157,15 +231,10 @@ export const importExcel = async (req, res) => {
       OBSERVACIONES: 'observaciones'
     };
 
-    // Buscar fila de encabezados
     const headerRowIndex = rows.findIndex(r => r.some(c => c));
     const headersNorm = rows[headerRowIndex].map(norm);
-
-    console.log('🔹 Encabezados normalizados:', headersNorm);
-
     const dataRows = rows.slice(headerRowIndex + 1);
 
-    // Forward-fill vertical para merges
     const prevVals = Array(headersNorm.length).fill(null);
     const filledRows = dataRows.map(row =>
       row.map((cell, idx) => {
@@ -178,23 +247,19 @@ export const importExcel = async (req, res) => {
     );
 
     const idxDescripcion = headersNorm.findIndex(h => h === 'DESCRIPCION');
-
     const parseDecimal = (val) => {
       if (val === null || val === '') return null;
-      return parseFloat(
-        String(val).replace(/\./g, '').replace(',', '.')
-      ) || null;
+      return parseFloat(String(val).replace(/\./g, '').replace(',', '.')) || null;
     };
 
     const productos = filledRows
-      .filter(r => idxDescripcion >= 0 && r[idxDescripcion]) // Solo filas con descripción
+      .filter(r => idxDescripcion >= 0 && r[idxDescripcion])
       .map((r, i) => {
         const obj = {};
         r.forEach((val, idx) => {
           const attr = map[headersNorm[idx]];
           if (!attr || val === null || val === '') return;
 
-          // Casting
           if (['costo','precio'].includes(attr)) {
             val = parseDecimal(val);
           } else if (['cantidad'].includes(attr)) {
@@ -204,19 +269,14 @@ export const importExcel = async (req, res) => {
           } else if (attr === 'visible') {
             val = ['1','TRUE','SI','SÍ'].includes(norm(val));
           } else if (attr === 'codBarras') {
-            val = String(val).split('.')[0]; // Aseguramos string sin decimales
+            val = String(val).split('.')[0];
           }
-
           obj[attr] = val;
         });
 
-        // Generar ID automático si falta
         if (!obj.id_articulo) obj.id_articulo = `AUTO-${Date.now()}-${i}`;
         return obj;
       });
-
-    console.log('🔹 Productos válidos parseados:', productos.length);
-    console.log('🔹 Ejemplo primeras 5 filas:', productos.slice(0, 5));
 
     if (!productos.length) {
       req.flash('error', 'No se encontró ninguna fila válida para importar');
@@ -237,9 +297,7 @@ export const importExcel = async (req, res) => {
     res.redirect('/admin/productos');
   } catch (err) {
     console.error('⛔ Error al importar Excel:', err);
-    if (err.errors) {
-      err.errors.forEach(e => console.error('Detalle:', e.message, e.value));
-    }
+    if (err.errors) err.errors.forEach(e => console.error('Detalle:', e.message, e.value));
     req.flash('error', 'Error interno al procesar el Excel');
     res.redirect('/admin/productos');
   }

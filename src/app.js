@@ -116,6 +116,7 @@ app.use((req, res, next) => {
 app.use('/api-docs', swaggerUI.serve, swaggerUI.setup(swaggerSpec));
 
 // Rutas
+app.get('/', (_req, res) => res.redirect('/admin'));
 app.use('/api', router);
 app.use('/admin', adminRouter);
 app.use('/auth', authRouter);
