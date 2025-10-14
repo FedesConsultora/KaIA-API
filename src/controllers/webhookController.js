@@ -8,13 +8,13 @@ const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || 'dev-token';
 const FALLBACK_MSG = 'No encontré ese producto en el catálogo de KronenVet. ¿Podés darme nombre comercial, marca o principio activo?';
 
 export function handleWhatsAppVerify(req, res) {
-  const mode        = req.query['hub.mode'];
-  const token       = req.query['hub.verify_token'];
-  const challenge   = req.query['hub.challenge'];
+  const mode      = req.query['hub.mode'];
+  const token     = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
 
   if (mode === 'subscribe' && token && token === VERIFY_TOKEN) {
     console.log('✅ Webhook verificado por Meta.');
-    return res.status(200).send(challenge);
+    return res.status(200).type('text/plain').send(String(challenge));
   }
   console.warn('❌ Verificación de webhook fallida. Token no coincide.');
   return res.sendStatus(403);
