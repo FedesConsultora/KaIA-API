@@ -3,7 +3,6 @@ import 'dotenv/config';
 import { getPromptSystem } from './promptTemplate.js';
 
 let openai = null;
-
 if (process.env.OPENAI_API_KEY) {
   openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 } else {
@@ -11,32 +10,33 @@ if (process.env.OPENAI_API_KEY) {
 }
 
 /**
- * Responde un mensaje usando GPT o, si no está configurado,
- * devuelve una respuesta simulada para pruebas.
+ * Responde usando GPT. Si `openai` no está configurado, simula.
+ * @param {string} mensajeVet  Texto del veterinario
+ * @param {string} contextoExtra  Markdown con líneas "- Producto …" desde catálogo
  */
-export async function responderConGPT(mensajeVet) {
+export async function responderConGPT(mensajeVet, contextoExtra = '') {
+  // Seguridad de negocio: si no hay match en catálogo, no consultamos GPT.
+  if (!contextoExtra) {
+    return 'No encontré ese producto en el catálogo de KronenVet. ¿Podés darme nombre comercial, marca o principio activo?';
+  }
+
   if (!openai) {
-    return `🛠️ Simulación KaIA: recibí tu mensaje "${mensajeVet}", pero OpenAI aún no está configurado.`;
+    return `🛠️ Simulación KaIA:\n${mensajeVet}\n\nContexto:\n${contextoExtra}`;
   }
 
   try {
-    console.log("📥 [GPT INPUT]:", mensajeVet);
-
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-2024-05-13", // modelo fijado para consistencia
+      model: 'gpt-4o-2024-05-13',
       messages: [
-        { role: "system", content: getPromptSystem() },
-        { role: "user", content: mensajeVet }
+        { role: 'system', content: getPromptSystem({ contextoExtra }) },
+        { role: 'user',   content: mensajeVet }
       ],
-      temperature: 0.7
+      temperature: 0.3
     });
 
-    const respuesta = completion.choices?.[0]?.message?.content || "Sin respuesta del modelo.";
-    console.log("📤 [GPT OUTPUT]:", respuesta);
-    return respuesta;
-
+    return completion.choices?.[0]?.message?.content || 'Sin respuesta del modelo.';
   } catch (error) {
-    console.error("❌ Error al consultar OpenAI:", error);
-    return "Lo siento, no pude procesar tu consulta en este momento. Por favor intentá más tarde.";
+    console.error('❌ Error OpenAI:', error);
+    return 'No pude procesar tu consulta en este momento. Probá más tarde.';
   }
 }

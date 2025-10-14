@@ -11,7 +11,8 @@ const router = Router();
 // Montamos los routers especializados
 router.use('/cuenta', cuentaRouter);
 router.use('/catalogo', productosRouter);
-router.use('/productos', promosRouter);
+router.use('/productos', productosRouter);
+router.use('/promos',    promosRouter); 
 router.use('/recomendacion', recomendacionRouter);
 router.use('/chat', chatRouter);
 

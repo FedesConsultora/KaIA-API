@@ -18,6 +18,7 @@ import cookieParser from 'cookie-parser';
 import authDesdeCookie from './middlewares/authDesdeCookie.js';
 import hbsHelpers from './helpers/handlebars.js';
 import { allowInsecurePrototypeAccess } from '@handlebars/allow-prototype-access';
+import webhookRouter from './routes/webhookRouter.js';
 import Handlebars from 'handlebars';
 
 const app = express();
@@ -117,6 +118,7 @@ app.use('/api-docs', swaggerUI.serve, swaggerUI.setup(swaggerSpec));
 
 // Rutas
 app.get('/', (_req, res) => res.redirect('/admin'));
+app.use('/webhook/whatsapp', webhookRouter);
 app.use('/api', router);
 app.use('/admin', adminRouter);
 app.use('/auth', authRouter);
