@@ -11,7 +11,8 @@ export function handleWhatsAppVerify(req, res) {
   const mode      = req.query['hub.mode'];
   const token     = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-
+  console.log('VERIFY HIT', { ip: req.ip, mode, token_len: token?.length });
+  
   if (mode === 'subscribe' && token && token === VERIFY_TOKEN) {
     console.log('✅ Webhook verificado por Meta.');
     return res.status(200).type('text/plain').send(String(challenge));

@@ -8,6 +8,7 @@ const router = Router();
 
 // GET para verificación de Meta (hub.challenge)
 router.get('/', handleWhatsAppVerify);
+router.head('/', handleWhatsAppVerify);
 
 // POST para eventos/mensajes entrantes
 router.post('/', handleWhatsAppMessage);

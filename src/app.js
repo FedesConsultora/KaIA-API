@@ -115,7 +115,7 @@ app.use((req, res, next) => {
 });
 
 app.use('/api-docs', swaggerUI.serve, swaggerUI.setup(swaggerSpec));
-
+app.set('trust proxy', true);
 // Rutas
 app.get('/', (_req, res) => res.redirect('/admin'));
 app.use('/webhook/whatsapp', webhookRouter);
