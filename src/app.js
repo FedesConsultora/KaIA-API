@@ -113,12 +113,17 @@ app.use((req, res, next) => {
   res.locals.error   = req.flash('error');
   next();
 });
-
-app.use('/api-docs', swaggerUI.serve, swaggerUI.setup(swaggerSpec));
 app.set('trust proxy', true);
+
+app.use((req, res, next) => {
+  console.log('--- QUERY ---', req.url);
+  console.log('--- HEADERS ---', req.headers);
+  next();
+});
+
+app.use('/webhook/whatsapp', webhookRouter);
 // Rutas
 app.get('/', (_req, res) => res.redirect('/admin'));
-app.use('/webhook/whatsapp', webhookRouter);
 app.use('/api', router);
 app.use('/admin', adminRouter);
 app.use('/auth', authRouter);
