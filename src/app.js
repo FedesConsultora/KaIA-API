@@ -9,7 +9,6 @@ import adminRouter from './routes/adminRouter.js';
 import authRouter from './routes/authRouter.js';
 import 'dotenv/config';
 import path from 'path';
-import 'dotenv/config';
 import compression from 'compression';
 import { create } from 'express-handlebars';
 import session from 'express-session';

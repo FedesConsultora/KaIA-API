@@ -1,0 +1,19 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: sh -c "wait-port db:3306 && nodemon --legacy-watch index.js"
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      DB_HOST: db
+      DB_PORT: 3306
+    volumes:
+      - .:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    restart: unless-stopped

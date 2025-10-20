@@ -11,6 +11,7 @@ import { Compra }           from './Compra.js';
 import { Feedback }         from './Feedback.js';
 import { PrecioLog }        from './PrecioLog.js';
 import { EjecutivoCuenta } from './EjecutivoCuenta.js';
+import WhatsAppSession from './WhatsAppSession.js';
 
 /* ─── Asociaciones ────────────────────────────── */
 /** 1 : 1  (Usuario ↔ CuentaCorriente) */
@@ -68,5 +69,6 @@ export {
   Compra,
   Feedback,
   PrecioLog, 
-  EjecutivoCuenta
+  EjecutivoCuenta,
+  WhatsAppSession
 };
