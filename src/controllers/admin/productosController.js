@@ -173,6 +173,7 @@ export const purgeAll = async (req, res) => {
 
 
 /* ─────────────────────── Importar Excel ─────────────────────── */
+/* ─────────────────────── Importar Excel (ROBUSTO) ─────────────────────── */
 export const importExcel = async (req, res) => {
   try {
     if (!req.file) {
@@ -180,40 +181,161 @@ export const importExcel = async (req, res) => {
       return res.redirect('/admin/productos');
     }
 
+    // 1) Leer Excel
     const wb    = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheet = wb.Sheets[wb.SheetNames[0]];
+    if (!sheet || !sheet['!ref']) {
+      req.flash('error', 'Hoja vacía o inválida en el Excel');
+      return res.redirect('/admin/productos');
+    }
 
+    // 2) Volcar a matriz de celdas (respetando merges) para poder hacer forward-fill
     const range  = XLSX.utils.decode_range(sheet['!ref']);
     const merges = sheet['!merges'] || [];
     const rows   = [];
-
     for (let R = range.s.r; R <= range.e.r; ++R) {
       const row = [];
       for (let C = range.s.c; C <= range.e.c; ++C) {
-        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-        let cell = sheet[cellAddress]?.v ?? null;
+        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+        let val = sheet[addr]?.v ?? null;
 
-        if (cell === null) {
-          const merge = merges.find(m =>
-            R >= m.s.r && R <= m.e.r && C >= m.s.c && C <= m.e.c
-          );
+        // Si está vacío, ver si cae dentro de un merge y tomar la celda origen
+        if (val === null) {
+          const merge = merges.find(m => R >= m.s.r && R <= m.e.r && C >= m.s.c && C <= m.e.c);
           if (merge) {
             const mainCell = XLSX.utils.encode_cell({ r: merge.s.r, c: merge.s.c });
-            cell = sheet[mainCell]?.v ?? null;
+            val = sheet[mainCell]?.v ?? null;
           }
         }
-        row.push(cell);
+        row.push(val);
       }
       rows.push(row);
     }
 
-    const norm = s => (s ?? '')
+    // 3) Normalizadores
+    const norm = (s) => (s ?? '')
       .toString()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/\s+/g, '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // sin acentos
+      .replace(/\s+/g, ' ')                             // colapsa espacios
       .trim()
       .toUpperCase();
 
+    const isTrue  = (v) => ['1','TRUE','SI','SÍ','YES','Y','X'].includes(norm(v));
+    const isFalse = (v) => ['0','FALSE','NO','N'].includes(norm(v));
+
+    // Decimales tolerantes (AR/US)
+    const parseDecimal = (val) => {
+      if (val === null || val === '') return null;
+      if (typeof val === 'number') return val;
+
+      let s = String(val).trim();
+      s = s.replace(/[^\d.,-]/g, ''); // deja dígitos, coma, punto, signo
+
+      const hasComma = s.includes(',');
+      const hasDot   = s.includes('.');
+
+      if (hasComma && hasDot) {
+        // Asumimos coma como decimal (12.345,67 => 12345.67)
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else if (hasComma) {
+        // Sólo coma => decimal (12345,67 => 12345.67)
+        s = s.replace(',', '.');
+      } // sólo punto => ya sirve
+
+      const n = Number(s);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    // 4) Detección de cabecera "inteligente"
+    // Nombres normalizados que aceptamos como cabecera
+    // podés sumar sinónimos según tu layout de Excel
+    const HEADER_SYNONYMS = {
+      'ID ARTICULO'   : 'IDARTICULO',
+      'IDARTICULO'    : 'IDARTICULO',
+      'CODIGO'        : 'IDARTICULO',
+      'CODIGOARTICULO': 'IDARTICULO',
+
+      'DESCRIPCION' : 'DESCRIPCION',
+      'NOMBRE'      : 'DESCRIPCION',
+      'PRODUCTO'    : 'DESCRIPCION',
+
+      'COSTO'       : 'COSTO',
+
+      'PRECIO'      : 'PRECIO1',
+      'PRECIO 1'    : 'PRECIO1',
+      'PRECIO1'     : 'PRECIO1',
+      'PVP'         : 'PRECIO1',
+      'PRECIOPUBLICO': 'PRECIO1',
+
+      'PRESENTACION': 'PRESENTACION',
+      'PRESENTACION COMERCIAL': 'PRESENTACION',
+
+      'MARCA'      : 'MARCA',
+      'RUBRO'      : 'RUBRO',
+      'FAMILIA'    : 'FAMILIA',
+      'PROVEEDOR'  : 'PROVEEDOR',
+
+      'CODIGO DE BARRAS': 'CODIGOBARRAS',
+      'CODIGOBARRAS'    : 'CODIGOBARRAS',
+      'EAN'             : 'CODIGOBARRAS',
+      'CODBARRAS'       : 'CODIGOBARRAS',
+
+      'DE BAJA'    : 'DEBAJA',
+      'DEBAJA'     : 'DEBAJA',
+      'BAJA'       : 'DEBAJA',
+
+      'PUBLICAR'   : 'PUBLICAR',
+      'VISIBLE'    : 'PUBLICAR',
+
+      'DISP'       : 'DISP',
+      'DISPONIBLE' : 'DISP',
+      'CANTIDAD'   : 'DISP',
+
+      'OBSERVACIONES': 'OBSERVACIONES',
+      'OBS'          : 'OBSERVACIONES',
+
+      'PRINCIPIO ACTIVO': 'PRINCIPIOACTIVO',
+      'PRINCIPIOACTIVO' : 'PRINCIPIOACTIVO',
+
+      'USO PRINCIPAL' : 'USOPRINCIPAL',
+      'USOPRINCIPAL'  : 'USOPRINCIPAL'
+    };
+
+    const REQUIRED = ['IDARTICULO','DESCRIPCION','PRECIO1']; // con 2/3 ya aceptamos
+    const normalizeHeaderToken = (raw) => HEADER_SYNONYMS[norm(raw)] || norm(raw);
+
+    const guessHeaderRow = (rows) => {
+      for (let i = 0; i < rows.length; i++) {
+        const normalized = rows[i].map(normalizeHeaderToken);
+        const hits = REQUIRED.filter(h => normalized.includes(h)).length;
+        if (hits >= 2) return i;
+      }
+      return -1;
+    };
+
+    const headerRowIndex = guessHeaderRow(rows);
+    if (headerRowIndex === -1) {
+      req.flash('error', 'No pude detectar la fila de cabeceras (IdArticulo/Descripcion/Precio). Revisá el Excel.');
+      return res.redirect('/admin/productos');
+    }
+
+    const headersNorm = rows[headerRowIndex].map(normalizeHeaderToken);
+    const dataRows    = rows.slice(headerRowIndex + 1);
+
+    // 5) Forward-fill: completa celdas vacías con el último valor visto por columna
+    const prevVals = Array(headersNorm.length).fill(null);
+    const filledRows = dataRows.map(row =>
+      row.map((cell, idx) => {
+        if (cell !== null && cell !== '') {
+          prevVals[idx] = cell;
+          return cell;
+        }
+        return prevVals[idx];
+      })
+    );
+
+    // 6) Mapeo cabecera → campos del modelo
+    // (usar los mismos nombres que tu modelo Producto)
     const map = {
       IDARTICULO   : 'id_articulo',
       DESCRIPCION  : 'nombre',
@@ -228,53 +350,53 @@ export const importExcel = async (req, res) => {
       DEBAJA       : 'debaja',
       PUBLICAR     : 'visible',
       DISP         : 'cantidad',
-      OBSERVACIONES: 'observaciones'
+      OBSERVACIONES: 'observaciones',
+      PRINCIPIOACTIVO: 'principio_activo',
+      USOPRINCIPAL : 'uso_principal'
     };
 
-    const headerRowIndex = rows.findIndex(r => r.some(c => c));
-    const headersNorm = rows[headerRowIndex].map(norm);
-    const dataRows = rows.slice(headerRowIndex + 1);
-
-    const prevVals = Array(headersNorm.length).fill(null);
-    const filledRows = dataRows.map(row =>
-      row.map((cell, idx) => {
-        if (cell !== null && cell !== '') {
-          prevVals[idx] = cell;
-          return cell;
-        }
-        return prevVals[idx];
-      })
-    );
-
+    // 7) Construir objetos Producto desde las filas
+    // índice obligatorio para filtrar filas vacías
     const idxDescripcion = headersNorm.findIndex(h => h === 'DESCRIPCION');
-    const parseDecimal = (val) => {
-      if (val === null || val === '') return null;
-      return parseFloat(String(val).replace(/\./g, '').replace(',', '.')) || null;
-    };
 
     const productos = filledRows
       .filter(r => idxDescripcion >= 0 && r[idxDescripcion])
       .map((r, i) => {
         const obj = {};
         r.forEach((val, idx) => {
-          const attr = map[headersNorm[idx]];
-          if (!attr || val === null || val === '') return;
+          const key = headersNorm[idx];
+          const attr = map[key];
+          if (!attr) return;            // columna no mapeada
+          if (val === null || val === '') return;
+
+          let v = val;
 
           if (['costo','precio'].includes(attr)) {
-            val = parseDecimal(val);
-          } else if (['cantidad'].includes(attr)) {
-            val = parseInt(val, 10) || 0;
+            v = parseDecimal(v);
+          } else if (attr === 'cantidad') {
+            v = parseInt(String(v).replace(/\D+/g,''), 10);
+            if (!Number.isFinite(v)) v = 0;
           } else if (attr === 'debaja') {
-            val = ['1','TRUE','SI','SÍ'].includes(norm(val));
+            v = isTrue(v);
           } else if (attr === 'visible') {
-            val = ['1','TRUE','SI','SÍ'].includes(norm(val));
+            v = isTrue(v);
           } else if (attr === 'codBarras') {
-            val = String(val).split('.')[0];
+            v = String(v).split('.')[0]; // evita notación 123456789012.0
+          } else {
+            // strings comunes
+            v = (v ?? '').toString().trim();
           }
-          obj[attr] = val;
+
+          obj[attr] = v;
         });
 
+        // Limpieza de strings vacíos => null
+        Object.keys(obj).forEach(k => { if (obj[k] === '') obj[k] = null; });
+
+        // Sanitarios
+        if (typeof obj.cantidad !== 'number' || isNaN(obj.cantidad)) obj.cantidad = 0;
         if (!obj.id_articulo) obj.id_articulo = `AUTO-${Date.now()}-${i}`;
+
         return obj;
       });
 
@@ -283,9 +405,12 @@ export const importExcel = async (req, res) => {
       return res.redirect('/admin/productos');
     }
 
+    // 8) Upsert masivo
+    // Agregá aquí todos los campos que quieras actualizar si el id_articulo ya existe
     const updatable = [
       'costo','precio','presentacion','proveedor','marca','rubro','familia',
-      'debaja','cantidad','codBarras','observaciones','visible'
+      'debaja','cantidad','codBarras','observaciones','visible',
+      'principio_activo','uso_principal','nombre'
     ];
 
     await Producto.bulkCreate(productos, {
@@ -293,7 +418,11 @@ export const importExcel = async (req, res) => {
       validate: true
     });
 
-    req.flash('success', `Se importaron ${productos.length} productos correctamente`);
+    // (Opcional) conteo para verificar que quedó todo
+    // const totalDB = await Producto.count();
+    // console.log('✅ Productos totales tras import:', totalDB);
+
+    req.flash('success', `Se importaron/actualizaron ${productos.length} productos correctamente`);
     res.redirect('/admin/productos');
   } catch (err) {
     console.error('⛔ Error al importar Excel:', err);
