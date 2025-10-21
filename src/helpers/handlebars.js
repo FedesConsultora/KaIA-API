@@ -1,29 +1,42 @@
+// src/helpers/handlebars.js
 export default {
-  // Comparaciones básicas
+  /* ─── Comparaciones ─── */
   eq: (a, b) => String(a) === String(b),
   ne: (a, b) => String(a) !== String(b),
   lt: (a, b) => Number(a) <  Number(b),
   gt: (a, b) => Number(a) >  Number(b),
   and: (a, b) => !!(a && b),
-  or:  (a, b) => !!(a || b),
+  or : (a, b) => !!(a || b),
 
-  // Aritmética / utilitarios
+  /* ─── Aritmética / utilitarios ─── */
   add: (a, b) => Number(a) + Number(b),
+  subtract: (a, b) => Number(a) - Number(b),
   min: (a, b) => Math.min(Number(a), Number(b)),
   max: (a, b) => Math.max(Number(a), Number(b)),
 
-  // Rango simple 1..N
+  /* Incrementos simples para paginación */
+  inc: (v) => Number(v) + 1,
+  dec: (v) => Number(v) - 1,
+
+  /* Construye un array literal para #each (p.ej. (array 10 25 50 100 200)) */
+  array: (...args) => {
+    // Handlebars pasa el hash/metadata en el último arg
+    const real = args.slice(0, -1);
+    return real;
+  },
+
+  /* Rango 1..N para #each */
   range: (start, end) => {
     const s = Number(start), e = Number(end);
     if (!Number.isFinite(s) || !Number.isFinite(e) || e < s) return [];
     return Array.from({ length: e - s + 1 }, (_, i) => s + i);
   },
 
-  // Ventana de paginación centrada (p.ej. 7 botones)
+  /* Ventana centrada de páginas (si más adelante la querés usar) */
   pageWindow: (page, totalPages, width) => {
     const p = Number(page) || 1;
     const T = Number(totalPages) || 1;
-    const W = Math.max(Number(width) || 7, 3); // mínimo ancho 3
+    const W = Math.max(Number(width) || 7, 3);
     if (T <= W) return Array.from({ length: T }, (_, i) => i + 1);
 
     const half = Math.floor(W / 2);

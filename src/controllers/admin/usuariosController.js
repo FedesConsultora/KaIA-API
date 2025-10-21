@@ -5,12 +5,41 @@ import multer from 'multer';
 
 export const uploadExcel = multer().single('archivo');
 
-export const list = async (_req, res) => {
-  const usuariosRaw = await Usuario.findAll({ logging: console.log });
-  const usuarios = usuariosRaw.map(u => u.toJSON());
+export const list = async (req, res) => {
+  const pageSize = Math.min(Math.max(parseInt(req.query.pageSize || '25', 10), 5), 200); // 5..200
+  const page     = Math.max(parseInt(req.query.page || '1', 10), 1);
+  const q        = (req.query.q || '').trim();
+
+  const sortAllow = ['nombre', 'phone', 'cuit', 'email', 'role', 'id'];
+  const sort      = sortAllow.includes(req.query.sort) ? req.query.sort : 'nombre';
+  const dir       = req.query.dir === 'DESC' ? 'DESC' : 'ASC';
+
+  const where = q
+    ? {
+        [Op.or]: [
+          { nombre: { [Op.like]: `%${q}%` } },
+          { phone : { [Op.like]: `%${q}%` } },
+          { cuit  : { [Op.like]: `%${q}%` } },
+          { email : { [Op.like]: `%${q}%` } }
+        ]
+      }
+    : {};
+
+  const { rows, count } = await Usuario.findAndCountAll({
+    where,
+    order : [[sort, dir], ['id', 'ASC']], // desempate estable
+    limit : pageSize,
+    offset: (page - 1) * pageSize
+  });
+
   res.render('admin/usuarios/list', {
     title: 'Usuarios',
-    usuarios
+    usuarios  : rows.map(r => r.get({ plain: true })),
+    q, page, pageSize, sort, dir,
+    total     : count,
+    totalPages: Math.max(Math.ceil(count / pageSize), 1),
+    success: req.flash?.('success'),
+    error  : req.flash?.('error')
   });
 };
 
