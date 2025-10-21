@@ -1,17 +1,58 @@
-<h1 class="mb-3">
-  Productos
-  <a href="/admin/productos/new" class="btn btn-success btn-sm">➕ Nuevo</a>
-  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
-    ⬆️ Importar Excel
-  </button>
-  <button class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modalPurge">
-    🧨 Vaciar catálogo
-  </button>
+<h1 class="mb-3 d-flex align-items-center justify-content-between">
+  <span>Productos</span>
+  <span class="d-flex gap-2">
+    <a href="/admin/productos/new" class="btn btn-success btn-sm">➕ Nuevo</a>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
+      ⬆️ Importar Excel
+    </button>
+    <button class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modalPurge">
+      🧨 Vaciar catálogo
+    </button>
+  </span>
 </h1>
 
-{{!-- Barra de acciones masivas --}}
-<form id="bulk-form" action="/admin/productos/bulk" method="POST" class="row g-2 align-items-center mb-3">
-  <div class="col-auto">
+{{!-- Filtros / tamaño de página --}}
+<form method="GET" class="row g-2 align-items-end mb-3">
+  <div class="col-md-4">
+    <label class="form-label">Buscar</label>
+    <input type="text" name="q" class="form-control" value="{{q}}" placeholder="Nombre, presentación, marca, código…">
+  </div>
+
+  <div class="col-md-2">
+    <label class="form-label">Ordenar por</label>
+    <select name="sort" class="form-select">
+      <option value="nombre"   {{#if (eq sort "nombre")}}selected{{/if}}>Nombre</option>
+      <option value="precio"   {{#if (eq sort "precio")}}selected{{/if}}>Precio</option>
+      <option value="cantidad" {{#if (eq sort "cantidad")}}selected{{/if}}>Stock</option>
+      <option value="id"       {{#if (eq sort "id")}}selected{{/if}}>ID</option>
+    </select>
+  </div>
+
+  <div class="col-md-2">
+    <label class="form-label">Dirección</label>
+    <select name="dir" class="form-select">
+      <option value="ASC"  {{#if (eq dir "ASC")}}selected{{/if}}>Ascendente</option>
+      <option value="DESC" {{#if (eq dir "DESC")}}selected{{/if}}>Descendente</option>
+    </select>
+  </div>
+
+  <div class="col-md-2">
+    <label class="form-label">Items por página</label>
+    <select name="pageSize" class="form-select">
+      <option value="25"  {{#if (eq pageSize 25)}}selected{{/if}}>25</option>
+      <option value="50"  {{#if (eq pageSize 50)}}selected{{/if}}>50</option>
+      <option value="100" {{#if (eq pageSize 100)}}selected{{/if}}>100</option>
+      <option value="200" {{#if (eq pageSize 200)}}selected{{/if}}>200</option>
+    </select>
+  </div>
+
+  <div class="col-md-2 d-grid">
+    <button class="btn btn-primary">Aplicar</button>
+  </div>
+</form>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <form id="bulk-form" action="/admin/productos/bulk" method="POST" class="d-flex align-items-center gap-2">
     <select name="action" class="form-select form-select-sm" required>
       <option value="" selected>— Acción masiva —</option>
       <option value="delete">🗑 Eliminar seleccionados</option>
@@ -20,19 +61,25 @@
       <option value="alta">⬆️ Marcar en alta (debaja=false)</option>
       <option value="baja">⬇️ Marcar de baja (debaja=true)</option>
     </select>
-  </div>
-  <div class="col-auto">
     <button class="btn btn-sm btn-secondary">Aplicar</button>
-  </div>
-</form>
+  </form>
+
+  <small class="text-muted">Total: {{total}} productos • Página {{page}} de {{totalPages}}</small>
+</div>
 
 <div class="table-responsive">
-  <table data-auto="dt" class="table table-striped align-middle">
+  <table class="table table-striped align-middle">
     <thead>
       <tr>
         <th><input type="checkbox" id="chk-all"></th>
-        <th>ID</th><th>Código</th><th>Nombre</th><th>Precio</th>
-        <th>Stock</th><th>Visible</th><th>De baja</th><th></th>
+        <th>ID</th>
+        <th>Código</th>
+        <th>Nombre</th>
+        <th>Precio</th>
+        <th>Stock</th>
+        <th>Visible</th>
+        <th>De baja</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -46,7 +93,7 @@
         <td>{{cantidad}}</td>
         <td>{{#if visible}}✔{{else}}✖{{/if}}</td>
         <td>{{#if debaja}}✔{{else}}—{{/if}}</td>
-        <td>
+        <td class="text-nowrap">
           <a class="btn btn-sm btn-primary" href="/admin/productos/{{id}}/edit">Editar</a>
           <button
             class="btn btn-sm btn-danger btn-confirmar-eliminar"
@@ -61,6 +108,33 @@
     </tbody>
   </table>
 </div>
+
+{{!-- Paginación --}}
+{{#if (gt totalPages 1)}}
+<nav aria-label="Paginación" class="mt-3">
+  <ul class="pagination justify-content-center flex-wrap">
+    {{!-- Prev --}}
+    <li class="page-item {{#if (eq page 1)}}disabled{{/if}}">
+      <a class="page-link"
+         href="?q={{q}}&sort={{sort}}&dir={{dir}}&pageSize={{pageSize}}&page={{max 1 (add page -1)}}">Anterior</a>
+    </li>
+
+    {{!-- Números (ventana de 7 páginas) --}}
+    {{#each (pageWindow page totalPages 7)}}
+      <li class="page-item {{#if (eq ../page this)}}active{{/if}}">
+        <a class="page-link"
+           href="?q={{../q}}&sort={{../sort}}&dir={{../dir}}&pageSize={{../pageSize}}&page={{this}}">{{this}}</a>
+      </li>
+    {{/each}}
+
+    {{!-- Next --}}
+    <li class="page-item {{#if (eq page totalPages)}}disabled{{/if}}">
+      <a class="page-link"
+         href="?q={{q}}&sort={{sort}}&dir={{dir}}&pageSize={{pageSize}}&page={{min totalPages (add page 1)}}">Siguiente</a>
+    </li>
+  </ul>
+</nav>
+{{/if}}
 
 {{> modalConfirm }}
 
@@ -128,7 +202,7 @@
 {{/if}}
 
 <script>
-  // Selección masiva
+  // Selección masiva + bulk post
   document.addEventListener('DOMContentLoaded', () => {
     const chkAll = document.getElementById('chk-all');
     const chkRows = [...document.querySelectorAll('.chk-row')];
@@ -139,7 +213,6 @@
     });
 
     bulkForm?.addEventListener('submit', (e) => {
-      // Inyectamos inputs ids[]
       const selected = chkRows.filter(c => c.checked).map(c => c.value);
       if (!selected.length) {
         e.preventDefault();
@@ -155,7 +228,7 @@
       });
     });
 
-    // Modal confirmación por fila (ya lo tenías)
+    // Modal confirmación por fila
     document.addEventListener('click', (event) => {
       const btn = event.target.closest('.btn-confirmar-eliminar');
       if (!btn) return;
