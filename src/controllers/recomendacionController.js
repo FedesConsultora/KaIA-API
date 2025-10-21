@@ -1,24 +1,28 @@
-import { buildCatalogContext } from '../services/catalogContext.js';
-import { responderConGPT }    from '../services/gptService.js';
+// src/controllers/recomendacionController.js
+import { recomendarDesdeBBDD } from '../services/recommendationService.js';
+import { responderConGPTStrict } from '../services/gptService.js';
 
 /**
- * Recibe el texto del vete → busca datos → llama a GPT → devuelve respuesta
- * Pensado para usarlo tanto desde REST (/api/recomendar) como desde webhook.
+ * Recibe el texto del vete → busca en BBDD → arma lista de válidos/similares → llama a GPT (guardrails)
+ * Válido para REST (/api/recomendar) y para pruebas directas.
  */
 export async function recomendarProducto(req, res) {
   try {
     const mensajeVet = req.body?.mensaje || req.query?.mensaje;
-    if (!mensajeVet) return res.status(400).json({ msg: 'Falta mensaje' });
+    if (!mensajeVet) return res.status(400).json({ ok: false, msg: 'Falta mensaje' });
 
-    // 1) Buscamos productos relacionados para el contexto
-    const contextoExtra = await buildCatalogContext(mensajeVet);
-    
-    // 2) Llamamos a GPT pasándole prompt + contexto
-    const respuesta = await responderConGPT(mensajeVet, contextoExtra);
+    // 1) Buscar candidato top y similares SOLO desde BBDD
+    const { top, similares } = await recomendarDesdeBBDD(mensajeVet);
 
-    res.json({ ok: true, respuesta });
+    // 2) Pasar a GPT SOLO 1 producto válido (si hay) + similares (para sugerir si no hay match)
+    const productosValidos = top ? [top] : [];
+
+    // 3) Responder con GPT (formato y reglas estrictas)
+    const respuesta = await responderConGPTStrict(mensajeVet, { productosValidos, similares });
+
+    return res.json({ ok: true, respuesta });
   } catch (err) {
     console.error('❌ Error recomendación:', err);
-    res.status(500).json({ ok: false, msg: 'Error interno' });
+    return res.status(500).json({ ok: false, msg: 'Error interno' });
   }
 }

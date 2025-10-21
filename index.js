@@ -12,9 +12,6 @@ async function main() {
     
     console.log('🟢  Base de datos conectada');
 
-    // 2) (Opcional) Sincronizar modelos
-    await sequelize.sync(); 
-    console.log('✅  Modelos sincronizados');
 
     // 3) Levantar servidor
     app.listen(PORT, () => {

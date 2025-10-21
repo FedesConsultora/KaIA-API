@@ -4,7 +4,6 @@ import cuentaRouter from './cuentaRouter.js';
 import productosRouter from './productosRouter.js';
 import promosRouter from './promosRouter.js';
 import recomendacionRouter from './recomendacionRouter.js';
-import chatRouter from './chatRouter.js';
 
 const router = Router();
 
@@ -14,7 +13,6 @@ router.use('/catalogo', productosRouter);
 router.use('/productos', productosRouter);
 router.use('/promos',    promosRouter); 
 router.use('/recomendacion', recomendacionRouter);
-router.use('/chat', chatRouter);
 
 
 // Opcional: health-check o ruta raíz
