@@ -1,8 +1,7 @@
 // src/routes/router.js
 import { Router } from 'express';
 import cuentaRouter from './cuentaRouter.js';
-import productosRouter from './productosRouter.js';
-import promosRouter from './promosRouter.js';
+import productosRouter from './catalogoRouter.js';
 import recomendacionRouter from './recomendacionRouter.js';
 
 const router = Router();
@@ -11,7 +10,6 @@ const router = Router();
 router.use('/cuenta', cuentaRouter);
 router.use('/catalogo', productosRouter);
 router.use('/productos', productosRouter);
-router.use('/promos',    promosRouter); 
 router.use('/recomendacion', recomendacionRouter);
 
 

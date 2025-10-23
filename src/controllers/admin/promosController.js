@@ -47,17 +47,29 @@ export const formEdit = async (req, res) => {
   });
 };
 
+function pickPromoPayload(body) {
+  const {
+    nombre, tipo, detalle, regalo, presentacion, especie, laboratorio,
+    productos_txt, stock_disponible, vigencia_desde, vigencia_hasta, vigente
+  } = body;
+  return {
+    nombre: (nombre ?? '').toString().trim(),
+    tipo, detalle, regalo, presentacion, especie, laboratorio,
+    productos_txt: productos_txt ?? null,
+    stock_disponible: Number(stock_disponible ?? 0) || 0,
+    vigencia_desde: vigencia_desde ? new Date(vigencia_desde) : null,
+    vigencia_hasta: vigencia_hasta ? new Date(vigencia_hasta) : null,
+    vigente: strToBool(vigente ?? true)
+  };
+}
+
 export const create = async (req, res) => {
   try {
-    const { productosIds = [] } = req.body;
-
-    const nueva = await Promocion.create(req.body);
-    
-    // Asociar productos si se seleccionaron
-    if (Array.isArray(productosIds) && productosIds.length > 0) {
+    const { productosIds } = req.body;
+    const nueva = await Promocion.create(pickPromoPayload(req.body));
+    if (Array.isArray(productosIds) && productosIds.length) {
       await nueva.setProductos(productosIds);
     }
-
     req.flash('success', `Promoción “${nueva.nombre}” creada con éxito`);
     res.redirect('/admin/promos');
   } catch (err) {
@@ -69,17 +81,10 @@ export const create = async (req, res) => {
 
 export const update = async (req, res) => {
   try {
-    const { productosIds = [] } = req.body;
-
-    await Promocion.update(req.body, { where: { id: req.params.id } });
-
+    const { productosIds } = req.body;
+    await Promocion.update(pickPromoPayload(req.body), { where: { id: req.params.id } });
     const promo = await Promocion.findByPk(req.params.id);
-    
-    // Actualizar asociaciones
-    if (Array.isArray(productosIds)) {
-      await promo.setProductos(productosIds); // Sequelize borra las existentes y crea nuevas
-    }
-
+    if (Array.isArray(productosIds)) await promo.setProductos(productosIds);
     req.flash('success', `Promoción “${req.body.nombre}” actualizada con éxito`);
     res.redirect('/admin/promos');
   } catch (err) {
@@ -89,7 +94,6 @@ export const update = async (req, res) => {
   }
 };
 
-/* ─────────────── Delete ─────────────── */
 export const remove = async (req, res) => {
   try {
     await Promocion.destroy({ where: { id: req.params.id } });
@@ -104,19 +108,13 @@ export const remove = async (req, res) => {
 /* ─────────────── Importar Excel ─────────────── */
 export const importExcel = async (req, res) => {
   try {
-    if (!req.file) {
-      req.flash('error', 'Adjuntá un archivo .xlsx');
-      return res.redirect('/admin/promos');
-    }
+    if (!req.file) { req.flash('error', 'Adjuntá un archivo .xlsx'); return res.redirect('/admin/promos'); }
 
     const wb    = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows  = XLSX.utils.sheet_to_json(sheet, { defval: null });
 
-    if (!rows.length) {
-      req.flash('error', 'La hoja está vacía');
-      return res.redirect('/admin/promos');
-    }
+    if (!rows.length) { req.flash('error', 'La hoja está vacía'); return res.redirect('/admin/promos'); }
 
     const map = {
       PROMO_ID       : null,
@@ -139,40 +137,30 @@ export const importExcel = async (req, res) => {
       VIGENTE        : 'vigente'
     };
 
-    const normKey = (k) =>
-      k ? k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim() : '';
+    const normKey = (k) => k ? k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim() : '';
 
-    const promos = rows.map((r) => {
-      const obj = {};
-      for (const [colRaw, val] of Object.entries(r)) {
-        const col = normKey(colRaw);
-        const attr = map[col];
-        if (!attr) continue;
-
-        let v = val;
-        if (attr === 'stock_disponible') {
-          v = parseInt(String(v).replace(',', '.'), 10) || 0;
-        } else if (attr === 'vigente') {
-          v = strToBool(v) ?? true;
-        } else if (attr === 'vigencia_desde' || attr === 'vigencia_hasta') {
-          v = v ? new Date(v) : null;
+    const promos = rows
+      .map((r) => {
+        const obj = {};
+        for (const [colRaw, val] of Object.entries(r)) {
+          const col  = normKey(colRaw);
+          const attr = map[col];
+          if (!attr) continue;
+          let v = val;
+          if (attr === 'stock_disponible')           v = parseInt(String(v).replace(',', '.'), 10) || 0;
+          else if (attr === 'vigente')               v = strToBool(v) ?? true;
+          else if (attr === 'vigencia_desde' ||
+                   attr === 'vigencia_hasta')        v = v ? new Date(v) : null;
+          obj[attr] = v;
         }
+        return obj;
+      })
+      .filter(p => p.nombre && p.nombre.toString().trim() !== '');
 
-        obj[attr] = v;
-      }
-      return obj;
-    }).filter(p => p.nombre && p.nombre.toString().trim() !== '');
-
-    if (!promos.length) {
-      req.flash('error', 'No se encontró ninguna fila válida');
-      return res.redirect('/admin/promos');
-    }
+    if (!promos.length) { req.flash('error', 'No se encontró ninguna fila válida'); return res.redirect('/admin/promos'); }
 
     await Promocion.bulkCreate(promos, {
-      updateOnDuplicate: [
-        'tipo','detalle','regalo','presentacion','especie','laboratorio',
-        'productos_txt','stock_disponible','vigencia_desde','vigencia_hasta','vigente'
-      ],
+      updateOnDuplicate: ['tipo','detalle','regalo','presentacion','especie','laboratorio','productos_txt','stock_disponible','vigencia_desde','vigencia_hasta','vigente'],
       validate: true
     });
 

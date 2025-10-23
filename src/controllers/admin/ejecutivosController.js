@@ -1,18 +1,15 @@
-import { EjecutivoCuenta, Usuario } from '../../models/index.js';
+// src/controllers/admin/ejecutivosController.js
+import { sequelize, EjecutivoCuenta, Usuario } from '../../models/index.js';
 import multer from 'multer';
 
-export const uploadExcel = multer().single('archivo');      // (opcional)
+export const uploadExcel = multer().single('archivo'); // reservado por si lo usás luego
 
+/* ───────── Listado ───────── */
 export const list = async (_req, res) => {
   const ejecutivos = (await EjecutivoCuenta.findAll({
-    include: {              // cuántos clientes atiende cada uno
-      model: Usuario,
-      attributes: []
-    },
+    include: [{ model: Usuario, attributes: [] }],
     attributes: {
-      include: [
-        [EjecutivoCuenta.sequelize.fn('COUNT', '*'), 'clientes']
-      ]
+      include: [[sequelize.fn('COUNT', sequelize.col('Usuarios.id')), 'clientes']]
     },
     group: ['EjecutivoCuenta.id'],
     order: [['nombre', 'ASC']]
@@ -24,6 +21,7 @@ export const list = async (_req, res) => {
   });
 };
 
+/* ───────── Form ───────── */
 export const formNew = (_req, res) =>
   res.render('admin/ejecutivos/form', { title: 'Nuevo ejecutivo', ejecutivo: {} });
 
@@ -38,6 +36,7 @@ export const formEdit = async (req, res) => {
   });
 };
 
+/* ───────── CRUD ───────── */
 export const create = async (req, res) => {
   const { nombre, phone, email } = req.body;
   await EjecutivoCuenta.create({ nombre, phone, email });
@@ -62,7 +61,3 @@ export const remove = async (req, res) => {
   req.flash('success', `Ejecutivo ${ej.nombre} eliminado`);
   res.redirect('/admin/ejecutivos');
 };
-
-/* Import-Excel → deja la firma para futuro
-export const importExcel = async (req,res)=>{ … }
-*/
