@@ -1,0 +1,45 @@
+{{!-- src/views/admin/feedback/list.hbs --}}
+<h1 class="mb-3 d-flex align-items-center justify-content-between">
+  <span>Feedback</span>
+</h1>
+
+<div class="table-responsive">
+  <table data-auto="dt" class="table table-striped align-middle">
+    <thead>
+      <tr>
+        <th>Fecha</th>
+        <th>CUIT</th>
+        <th>Teléfono</th>
+        <th>Flujo</th>
+        <th>Tipo</th>
+        <th>Comentario</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each items}}
+        <tr>
+          <td>{{created_at}}</td>
+          <td>{{cuit}}</td>
+          <td>{{phone}}</td>
+          <td>{{flow_id}}</td>
+          <td>{{satisfecho}}</td>
+          <td style="max-width: 520px; white-space: pre-wrap;">{{comentario}}</td>
+        </tr>
+      {{/each}}
+    </tbody>
+  </table>
+</div>
+
+{{!-- Alertas flash (si quisieras) --}}
+{{#if success}}
+  <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
+    ✅ {{success}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}
+{{#if error}}
+  <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
+    ❌ {{error}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+{{/if}}

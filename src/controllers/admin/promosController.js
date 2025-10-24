@@ -1,5 +1,5 @@
 // src/controllers/admin/promosController.js
-import { Promocion, Producto } from '../../models/index.js';
+import { Promocion, Producto, sequelize } from '../../models/index.js';
 import XLSX from 'xlsx';
 import multer from 'multer';
 
@@ -26,23 +26,43 @@ export const list = async (req, res) => {
 };
 
 /* ─────────────── Form Nuevo / Edit ─────────────── */
-export const formNew = (_req, res) =>
+export const formNew = async (_req, res) => {
+  // Solo productos activos (visibles y no de baja)
+  const productosActivos = (await Producto.findAll({
+    where: { visible: true, debaja: false },
+    attributes: ['id','nombre','marca','presentacion'],
+    order: [['nombre','ASC']]
+  })).map(p => p.get({ plain: true }));
+
   res.render('admin/promos/form', {
     title: 'Nueva promoción',
-    promo: { vigencia_desde_iso: '', vigencia_hasta_iso: '' }
+    promo: { vigencia_desde_iso: '', vigencia_hasta_iso: '', productos: [] },
+    productos: productosActivos
   });
+};
 
 export const formEdit = async (req, res) => {
-  const promoInst = await Promocion.findByPk(req.params.id);
+  const promoInst = await Promocion.findByPk(req.params.id, {
+    include: { model: Producto, attributes: ['id'] }
+  });
   if (!promoInst) return res.redirect('/admin/promos');
 
   const p = promoInst.get({ plain: true });
   p.vigencia_desde_iso = p.vigencia_desde ? p.vigencia_desde.toISOString().slice(0,10) : '';
   p.vigencia_hasta_iso = p.vigencia_hasta ? p.vigencia_hasta.toISOString().slice(0,10) : '';
+  // Arreglo de ids para el helper (includes)
+  p.productos = (p.Productos || []).map(pr => pr.id);
+
+  const productosActivos = (await Producto.findAll({
+    where: { visible: true, debaja: false },
+    attributes: ['id','nombre','marca','presentacion'],
+    order: [['nombre','ASC']]
+  })).map(pr => pr.get({ plain: true }));
 
   res.render('admin/promos/form', {
     title : `Editar ${p.nombre}`,
     promo : p,
+    productos: productosActivos,
     isEdit: true
   });
 };
@@ -105,7 +125,28 @@ export const remove = async (req, res) => {
   res.redirect('/admin/promos');
 };
 
-/* ─────────────── Importar Excel ─────────────── */
+/* ─────────────── Purge total (mes siguiente) ─────────────── */
+export const purgeAll = async (req, res) => {
+  try {
+    if (req.body?.confirm !== 'ELIMINAR-PROMOS') {
+      req.flash('error', 'Debés escribir ELIMINAR-PROMOS para confirmar.');
+      return res.redirect('/admin/promos');
+    }
+    await sequelize.transaction(async (t) => {
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 0', { transaction: t });
+      await sequelize.query('TRUNCATE TABLE productos_promociones', { transaction: t });
+      await sequelize.query('TRUNCATE TABLE promociones', { transaction: t });
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 1', { transaction: t });
+    });
+    req.flash('success', 'Se eliminaron todas las promociones.');
+  } catch (err) {
+    console.error('purgeAll promos error:', err);
+    req.flash('error', 'No se pudo vaciar la tabla de promociones.');
+  }
+  res.redirect('/admin/promos');
+};
+
+/* ─────────────── Importar Excel (solo info) ─────────────── */
 export const importExcel = async (req, res) => {
   try {
     if (!req.file) { req.flash('error', 'Adjuntá un archivo .xlsx'); return res.redirect('/admin/promos'); }
@@ -149,8 +190,7 @@ export const importExcel = async (req, res) => {
           let v = val;
           if (attr === 'stock_disponible')           v = parseInt(String(v).replace(',', '.'), 10) || 0;
           else if (attr === 'vigente')               v = strToBool(v) ?? true;
-          else if (attr === 'vigencia_desde' ||
-                   attr === 'vigencia_hasta')        v = v ? new Date(v) : null;
+          else if (attr === 'vigencia_desde' || attr === 'vigencia_hasta') v = v ? new Date(v) : null;
           obj[attr] = v;
         }
         return obj;

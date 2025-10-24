@@ -1,11 +1,10 @@
-{{!-- Alertas flash --}}
+{{!-- views/admin/promos/list.hbs --}}
 {{#if success}}
   <div class="alert alert-success alert-dismissible fade show" role="alert">
     ✅ {{success}}
     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
   </div>
 {{/if}}
-
 {{#if error}}
   <div class="alert alert-danger alert-dismissible fade show" role="alert">
     ❌ {{error}}
@@ -13,26 +12,23 @@
   </div>
 {{/if}}
 
-<h1 class="mb-3">
-  Promociones
-  <a href="/admin/promos/new" class="btn btn-success btn-sm">➕ Nueva</a>
-  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
-    ⬆️ Importar Excel
-  </button>
+<h1 class="mb-3 d-flex align-items-center justify-content-between">
+  <span>Promociones</span>
+  <span class="d-flex gap-2">
+    <a href="/admin/promos/new" class="btn btn-success btn-sm">➕ Nueva</a>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
+      ⬆️ Importar Excel
+    </button>
+    <button class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modalPurgePromos">
+      🧨 Borrar todas
+    </button>
+  </span>
 </h1>
 
 <div class="table-responsive">
   <table data-auto="dt" class="table table-striped align-middle">
     <thead>
-      <tr>
-        <th>ID</th>
-        <th>Nombre</th>
-        <th>Vigente</th>
-        <th>Stock</th>
-        <th>Desde</th>
-        <th>Hasta</th>
-        <th></th>
-      </tr>
+      <tr><th>ID</th><th>Nombre</th><th>Vigente</th><th>Stock</th><th>Desde</th><th>Hasta</th><th></th></tr>
     </thead>
     <tbody>
       {{#each promos}}
@@ -45,15 +41,9 @@
           <td>{{vigencia_hasta}}</td>
           <td>
             <a href="/admin/promos/{{id}}/edit" class="btn btn-sm btn-primary">Editar</a>
-            <button
-              class="btn btn-sm btn-danger btn-confirmar-eliminar"
-              data-id="{{id}}"
-              data-nombre="{{nombre}}"
-              data-entity="promoción"
-              data-url="/admin/promos"
-            >
-              🗑
-            </button>
+            <button class="btn btn-sm btn-danger btn-confirmar-eliminar"
+              data-id="{{id}}" data-nombre="{{nombre}}"
+              data-entity="promoción" data-url="/admin/promos">🗑</button>
           </td>
         </tr>
       {{/each}}
@@ -61,7 +51,6 @@
   </table>
 </div>
 
-{{!-- Partial: Modal confirmación --}}
 {{> modalConfirm }}
 
 <!-- Modal Importación Excel -->
@@ -70,25 +59,44 @@
     <div class="modal-content">
       <form action="/admin/promos/import-excel" method="POST" enctype="multipart/form-data"
         onsubmit="const btn = this.querySelector('button[type=submit]'); btn.disabled = true; btn.querySelector('.spinner-border').classList.remove('d-none');">
-
         <div class="modal-header">
           <h5 class="modal-title">Importar promociones desde Excel</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
-
         <div class="modal-body">
           <div class="mb-3">
             <label class="form-label">Archivo .xlsx</label>
             <input type="file" name="archivo" accept=".xlsx" class="form-control" required>
-            <small class="text-muted">Se tomarán solo las columnas válidas del modelo.</small>
+            <small class="text-muted">Solo se toman columnas del modelo (sin asociaciones).</small>
           </div>
         </div>
-
         <div class="modal-footer">
           {{> spinnerSubmitBtn label="Importar" }}
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         </div>
+      </form>
+    </div>
+  </div>
+</div>
 
+<!-- Modal Purge Promos -->
+<div class="modal fade" id="modalPurgePromos" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content border-danger">
+      <form action="/admin/promos/purge" method="POST"
+        onsubmit="return confirm('Esta acción eliminará TODAS las promociones. ¿Confirmás?');">
+        <div class="modal-header">
+          <h5 class="modal-title text-danger">Eliminar todas las promociones</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <p>Escribí <strong>ELIMINAR-PROMOS</strong> para confirmar.</p>
+          <input class="form-control" name="confirm" required placeholder="ELIMINAR-PROMOS">
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-danger">🧨 Borrar todas</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        </div>
       </form>
     </div>
   </div>
@@ -97,36 +105,26 @@
 <script>
   document.addEventListener('DOMContentLoaded', () => {
     const modalEl = document.getElementById('confirmModal');
-    if (!modalEl) return;
+    if (modalEl) {
+      const modal = new bootstrap.Modal(modalEl);
+      const confirmForm = document.getElementById('confirm-form');
+      const confirmNombre = document.getElementById('confirm-nombre');
+      const confirmEntity = document.getElementById('confirm-entity');
 
-    const modal = new bootstrap.Modal(modalEl);
-    const confirmForm = document.getElementById('confirm-form');
-    const confirmNombre = document.getElementById('confirm-nombre');
-    const confirmEntity = document.getElementById('confirm-entity');
+      document.addEventListener('click', (event) => {
+        const btn = event.target.closest('.btn-confirmar-eliminar');
+        if (!btn) return;
+        confirmNombre.textContent = btn.dataset.nombre;
+        confirmEntity.textContent = btn.dataset.entity || 'registro';
+        confirmForm.action = `${btn.dataset.url}/${btn.dataset.id}?_method=DELETE`;
+        modal.show();
+      });
+    }
 
-    document.addEventListener('click', (event) => {
-      const btn = event.target.closest('.btn-confirmar-eliminar');
-      if (!btn) return;
-
-      const id     = btn.dataset.id;
-      const nombre = btn.dataset.nombre;
-      const entity = btn.dataset.entity || 'registro';
-      const url    = btn.dataset.url;
-
-      confirmNombre.textContent = nombre;
-      confirmEntity.textContent = entity;
-      confirmForm.action = `${url}/${id}?_method=DELETE`;
-
-      modal.show();
-    });
-
-    // Activar DataTables si está disponible
     const dtTable = document.querySelector('table[data-auto="dt"]');
     if (window.jQuery && dtTable) {
       $(dtTable).DataTable({
-        language: {
-          url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/es-ES.json'
-        },
+        language: { url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/es-ES.json' },
         order: [[1, 'asc']]
       });
     }

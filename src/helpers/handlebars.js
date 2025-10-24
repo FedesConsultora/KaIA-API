@@ -50,5 +50,12 @@ export default {
     const out = [];
     for (let i = start; i <= end; i++) out.push(i);
     return out;
+  },
+  
+  includes: (arr, val) => {
+    if (!arr) return false;
+    if (!Array.isArray(arr)) return false;
+    const needle = String(val);
+    return arr.some(x => String(x?.id ?? x) === needle);
   }
 };

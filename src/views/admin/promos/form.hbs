@@ -1,4 +1,4 @@
-{{!-- Alertas flash --}}
+{{!-- views/admin/promos/form.hbs --}}
 {{#if success}}
   <div class="alert alert-success alert-dismissible fade show" role="alert">
     ✅ {{success}}
@@ -20,7 +20,6 @@
   method="POST"
   class="row g-3"
 >
-
   <div class="col-md-8">
     <label class="form-label">Nombre *</label>
     <input name="nombre" class="form-control" required value="{{promo.nombre}}">
@@ -57,8 +56,9 @@
   </div>
 
   <div class="col-12">
-    <label class="form-label">Productos asociados (texto)</label>
-    <textarea name="productos_txt" class="form-control" rows="2">{{promo.productos_txt}}</textarea>
+    <label class="form-label">Productos asociados (texto de referencia)</label>
+    <textarea name="productos_txt" class="form-control" rows="2" placeholder="Ej.: Doramectina 50, Pipetas gato, Línea X...">{{promo.productos_txt}}</textarea>
+    <small class="text-muted">Solo informativo. La vinculación real se hace tildando productos abajo.</small>
   </div>
 
   <div class="col-md-4">
@@ -77,27 +77,31 @@
   </div>
 
   <div class="col-md-2 form-check">
-    <input name="vigente" class="form-check-input" type="checkbox" id="chkVigente"
-      {{#if promo.vigente}}checked{{/if}}>
+    <input name="vigente" class="form-check-input" type="checkbox" id="chkVigente" {{#if promo.vigente}}checked{{/if}}>
     <label class="form-check-label" for="chkVigente">Vigente</label>
   </div>
 
-  {{!-- Solo si se cargó la lista de productos disponibles --}}
   {{#if productos}}
+    <hr class="mt-4">
     <div class="col-12">
-      <label class="form-label">Productos relacionados</label>
-      <div class="row row-cols-2">
+      <label class="form-label d-flex align-items-center justify-content-between">
+        <span>Productos relacionados (solo activos)</span>
+        <input type="text" id="filtroProductos" class="form-control form-control-sm w-auto" placeholder="Filtrar…">
+      </label>
+
+      <div class="row row-cols-2" id="productosList">
         {{#each productos}}
-          <div class="form-check col">
-            <input class="form-check-input" type="checkbox" name="productosIds" value="{{id}}"
-              id="prod_{{id}}"
+          <div class="form-check col mb-1" data-search="{{nombre}} {{marca}} {{presentacion}}">
+            <input class="form-check-input" type="checkbox" name="productosIds" value="{{id}}" id="prod_{{id}}"
               {{#if (includes ../promo.productos id)}}checked{{/if}}>
             <label class="form-check-label" for="prod_{{id}}">
-              {{nombre}}
+              {{nombre}} {{#if marca}}<small class="text-muted">({{marca}})</small>{{/if}}
+              {{#if presentacion}}<small class="text-muted">– {{presentacion}}</small>{{/if}}
             </label>
           </div>
         {{/each}}
       </div>
+      <small class="text-muted d-block mt-1">Tip: usá el filtro para buscar por nombre/marca/presentación.</small>
     </div>
   {{/if}}
 
@@ -106,3 +110,17 @@
     <a href="/admin/promos" class="btn btn-secondary">Volver</a>
   </div>
 </form>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const input = document.getElementById('filtroProductos');
+    const rows = [...document.querySelectorAll('#productosList [data-search]')];
+    input?.addEventListener('input', () => {
+      const q = (input.value || '').toLowerCase().trim();
+      rows.forEach(r => {
+        const hay = r.dataset.search?.toLowerCase().includes(q);
+        r.style.display = hay ? '' : 'none';
+      });
+    });
+  });
+</script>

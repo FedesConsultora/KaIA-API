@@ -90,11 +90,28 @@ export async function sendWhatsAppButtons(to, body, buttons = []) {
 
 /** Contactos (Cloud API) */
 export async function sendWhatsAppContacts(to, contacts = []) {
-  const mapped = (contacts || []).map(c => ({
-    name: { formatted_name: c.formatted_name?.toString().slice(0, 512) || 'Contacto' },
-    phones: (c.phones || []).map(p => ({ phone: String(p.phone), type: p.type || 'CELL' })),
-    emails: (c.emails || []).map(e => ({ email: String(e.email), type: e.type || 'WORK' })),
-  }));
+  const mapped = (contacts || []).map(c => {
+    const name = {
+      formatted_name: c.formatted_name?.toString().slice(0, 512) || 'Contacto'
+    };
+    if (c.first_name) name.first_name = String(c.first_name).slice(0, 128);
+    if (c.last_name)  name.last_name  = String(c.last_name).slice(0, 128);
+
+    const out = {
+      name,
+      phones: (c.phones || []).map(p => {
+        const ph = { phone: String(p.phone) };
+        if (p.type)  ph.type = p.type;     // 'CELL' | 'WORK' | 'HOME'
+        if (p.wa_id) ph.wa_id = String(p.wa_id);
+        return ph;
+      }),
+      emails: (c.emails || []).map(e => ({ email: String(e.email), type: e.type || 'WORK' })),
+    };
+
+    if (c.org) out.org = { company: String(c.org).slice(0, 256) };
+    return out;
+  });
+
   if (mapped.length === 0) return { skipped: true, reason: 'no-contacts' };
 
   return wabaFetch({

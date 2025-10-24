@@ -27,7 +27,9 @@ export async function upsertVerified(phone, cuit) {
     verifiedAt: new Date(),
     expiresAt,
     state: 'verified',
-    pending: null
+    pending: null,
+    feedbackLastPromptAt: null,
+    feedbackLastResponseAt: null
   }, { returning: true });
 
   return row;

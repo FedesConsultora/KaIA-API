@@ -1,50 +1,45 @@
-import { Op } from 'sequelize';
+// src/schedulers/feedbackScheduler.js
+import { Op, col, where } from 'sequelize';
 import { WhatsAppSession } from '../models/index.js';
 import { sendWhatsAppButtons } from '../services/whatsappService.js';
 
 const MIN = 60 * 1000;
-const INACTIVITY_MS = 15 * MIN;           // 15 minutos sin activity
-const FEEDBACK_COOLDOWN_MS = 24 * 60 * MIN; // 24 hs
+const INACTIVITY_MS = 15 * MIN;               // 15 minutos
+const WINDOW_24H_MS = 24 * 60 * MIN;          // 24 hs
 let running = false;
 
 export function startFeedbackScheduler() {
   setInterval(async () => {
     if (running) return;
     running = true;
+
     try {
       const now = Date.now();
       const inactiveSince = new Date(now - INACTIVITY_MS);
-      const cooldownSince = new Date(now - FEEDBACK_COOLDOWN_MS);
+      const windowSince   = new Date(now - WINDOW_24H_MS);
 
-      // Importante: usar ATRIBUTOS camelCase del modelo
       const sessions = await WhatsAppSession.findAll({
         where: {
           state: 'verified',
-          updatedAt: { [Op.lt]: inactiveSince },
-          [Op.or]: [
-            { feedbackLastPromptAt: { [Op.is]: null } },
-            { feedbackLastPromptAt: { [Op.lt]: cooldownSince } },
+          // Solo si NUNCA se lo mandamos → evita duplicados
+          feedbackLastPromptAt: { [Op.is]: null },
+
+          // updated_at entre (now-24h .. now-15m)
+          [Op.and]: [
+            where(col('updated_at'), { [Op.lt]: inactiveSince }),
+            where(col('updated_at'), { [Op.gt]: windowSince }),
           ],
         },
-        limit: 50,
+        limit: 200,
       });
 
       for (const s of sessions) {
-        // Ventana de 24h desde el último update de la sesión
-        const inside24h = s.updatedAt && (now - new Date(s.updatedAt).getTime()) < (24 * 60 * MIN);
-        if (!inside24h) continue; // fuera de ventana → no mandamos
-
-        const nombre = '¡Doc!';
-        const body = `¿Cómo venís con KaIA, ${nombre}?`;
-        const buttons = [
+        await sendWhatsAppButtons(s.phone, '¿Cómo venís con KaIA?', [
           { id: 'fb_ok',  title: '👍 Todo bien' },
           { id: 'fb_meh', title: '🛠 Mejorable' },
           { id: 'fb_txt', title: '📝 Comentario' },
-        ];
+        ]);
 
-        await sendWhatsAppButtons(s.phone, body, buttons);
-
-        // Anti-spam: registramos el prompt
         await WhatsAppSession.update(
           { feedbackLastPromptAt: new Date() },
           { where: { id: s.id } },
