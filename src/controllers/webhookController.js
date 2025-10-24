@@ -10,7 +10,7 @@ import { recomendarDesdeBBDD } from '../services/recommendationService.js';
 import { responderConGPTStrict } from '../services/gptService.js';
 import {
   getOrCreateSession, isExpired, upsertVerified, setState, getState,
-  ensureExpiry, setPending, getPending, clearPending, logout
+  ensureExpiry, setPending, getPending, clearPending, logout, bumpExpiry
 } from '../services/waSessionService.js';
 import { detectarIntent } from '../services/intentService.js';
 import {
@@ -96,7 +96,6 @@ async function handleConsulta(from, nombre, consultaRaw) {
     return;
   }
 
-  // Puede devolver varios válidos
   const { validos = [], top, similares = [] } = await recomendarDesdeBBDD(consulta);
   const productosValidos = Array.isArray(validos) && validos.length
     ? validos.slice(0, 3)
@@ -131,7 +130,6 @@ async function handleConsulta(from, nombre, consultaRaw) {
       ).join('\n');
       bloques.push(`No encontré ese producto en el catálogo de KrönenVet. ¿Podés darme nombre comercial o marca?\n${sims}\n\nDecime el nombre para ver detalles.`);
     }
-
     respuesta = bloques.join('\n\n') || t('error_generico');
   }
 
@@ -152,41 +150,39 @@ export async function handleWhatsAppMessage(req, res) {
       const session = await getOrCreateSession(from);
       await ensureExpiry(session);
 
-      console.log(`[RX] from=${from} state=${session.state} text="${(text || '').slice(0, 160)}"`);
+      console.log(`[RX] from=${from} state=${session.state} cuit=${session.cuit || '-'} text="${(text || '').slice(0, 160)}"`);
 
-      /* ====== Gating por CUIT ====== */
-      if (session.state !== 'verified' || isExpired(session) || !session.cuit) {
+      // ===== NUEVO: gating SOLO por CUIT + expiración (no por state)
+      const loggedIn = !!(session.cuit && !isExpired(session));
+      if (!loggedIn) {
         const digits = (text || '').replace(/\D/g, '');
-
         if (/^\d{11}$/.test(digits)) {
-          // 1) Checksum AFIP
           if (!isValidCuitNumber(digits)) {
-            console.log(`[AUTH] CUIT inválido (checksum): ${digits}`);
+            console.log(`[AUTH] gating=cuenta invalida (checksum) cuit=${digits}`);
             await sendWhatsAppText(from, t('bad_cuit'));
             continue;
           }
-
-          // 2) Debe existir en BBDD
           const vet = await getVetByCuit(digits);
           if (!vet) {
-            console.log(`[AUTH] CUIT no encontrado en BBDD: ${digits}`);
+            console.log(`[AUTH] gating=cuenta inexistente cuit=${digits}`);
             await sendWhatsAppText(from, t('bad_cuit'));
             continue;
           }
-
-          // 3) OK: upsert y bienvenida con nombre
           await upsertVerified(from, digits);
           const nombre = firstName(vet?.nombre) || '';
           const ttl = Number(process.env.CUIT_VERIFY_TTL_DAYS || process.env.WHATSAPP_SESSION_TTL_DAYS || 60);
+          console.log(`[AUTH] login ok cuit=${digits} nombre=${nombre}`);
           await sendWhatsAppText(from, t('ok_cuit', { nombre, ttl }));
           await sendMainList(from, nombre);
           continue;
         }
-
-        // Si no son 11 dígitos, pedimos CUIT con el texto centralizado
+        console.log(`[AUTH] gating=pedir_cuit reason=${!session.cuit ? 'no_cuit' : 'expired'}`);
         await sendWhatsAppText(from, t('ask_cuit'));
         continue;
       }
+
+      // Si está logueado, refrescamos vencimiento de sesión (fluidez)
+      await bumpExpiry(from);
 
       /* ====== Perfil ====== */
       const vet = await getVetByCuit(session.cuit);
@@ -202,6 +198,7 @@ export async function handleWhatsAppMessage(req, res) {
         if (!nuevo) { await sendWhatsAppText(from, t('editar_pedir_nombre')); continue; }
         await setPending(from, { action: 'edit_nombre', value: nuevo });
         await setState(from, 'confirm');
+        console.log(`[FLOW] edit_nombre -> confirm "${nuevo}"`);
         await sendConfirmList(from, t('editar_confirmar_nombre', { valor: nuevo }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
         continue;
       }
@@ -212,13 +209,15 @@ export async function handleWhatsAppMessage(req, res) {
         if (!isValidEmail(email)) { await sendWhatsAppText(from, t('editar_email_invalido')); continue; }
         await setPending(from, { action: 'edit_email', value: email });
         await setState(from, 'confirm');
+        console.log(`[FLOW] edit_email -> confirm "${email}"`);
         await sendConfirmList(from, t('editar_confirmar_email', { valor: email }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
         continue;
       }
 
       // --- Captura de consulta (cuando el usuario eligió "Buscar productos")
       if (state === 'awaiting_consulta') {
-        await setState(from, 'verified');
+        await setState(from, 'verified'); // volvemos al estado base sin romper login
+        console.log(`[FLOW] consulta="${(text||'').slice(0,80)}"`);
         await handleConsulta(from, nombre, text);
         continue;
       }
@@ -227,13 +226,13 @@ export async function handleWhatsAppMessage(req, res) {
       if (state === 'confirm') {
         const raw = (text || '').toLowerCase();
         const intentC = detectarIntent(text);
-
         const isNo  = intentC === 'confirm_no' || raw === 'confirm.no';
         const isYes = intentC === 'confirm_si' || raw === 'confirm.si';
 
         if (isNo) {
           await clearPending(from);
           await setState(from, 'verified');
+          console.log('[CONFIRM] cancelado');
           await sendWhatsAppText(from, t('cancelado'));
           await sendMainList(from, nombre);
           continue;
@@ -248,6 +247,7 @@ export async function handleWhatsAppMessage(req, res) {
             await clearPending(from);
             await setState(from, 'verified');
             const nombreNuevo = firstName(value) || nombre;
+            console.log('[CONFIRM] edit_nombre OK');
             await sendWhatsAppText(from, t('editar_ok_nombre', { nombre: nombreNuevo }));
             await sendMainList(from, nombreNuevo);
             continue;
@@ -256,21 +256,24 @@ export async function handleWhatsAppMessage(req, res) {
             await updateVetEmail(vet.id, value);
             await clearPending(from);
             await setState(from, 'verified');
+            console.log('[CONFIRM] edit_email OK');
             await sendWhatsAppText(from, t('editar_ok_email', { nombre, email: value }));
             await sendMainList(from, nombre);
             continue;
           }
           if (action === 'logout') {
             await clearPending(from);
-            await logout(from);
-            // Despedimos y NO mostramos menú; el próximo input pedirá CUIT si corresponde
-            await sendWhatsAppText(from, t('logout_ok'));
+            await logout(from); // deja la sesión limpia
+            console.log('[AUTH] logout OK');
+            // Despedimos SIN abrir menú ni pedir CUIT
+            await sendWhatsAppText(from, t('logout_ok', { nombre }));
             continue;
           }
 
           // Acción desconocida → cancelamos
           await clearPending(from);
           await setState(from, 'verified');
+          console.log('[CONFIRM] acción desconocida → cancelado');
           await sendWhatsAppText(from, t('cancelado'));
           await sendMainList(from, nombre);
           continue;
@@ -294,7 +297,6 @@ export async function handleWhatsAppMessage(req, res) {
       /* ====== Intents / Acciones de la lista ====== */
       const intent = detectarIntent(text) || '';
 
-      // Soportar toques de la lista principal:
       if (text === 'main.buscar' || intent === 'buscar') {
         await setState(from, 'awaiting_consulta');
         await sendWhatsAppText(from, t('pedir_consulta'));
@@ -323,7 +325,6 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // Abrir promo específica (list reply)
       if ((text || '').startsWith('promo:')) {
         const pid = Number(String(text).split(':')[1]);
         const p = await Promocion.findByPk(pid);
@@ -411,7 +412,7 @@ export async function handleWhatsAppMessage(req, res) {
         const comentario = (text || '').trim().slice(0, 3000);
         if (!comentario) { await sendWhatsAppText(from, '¿Podés escribir tu comentario? 👇'); continue; }
         try {
-          // Guardado opcional:
+          // Guardado opcional en tu modelo Feedback
           // await Feedback.create({ flow_id: 'feedback_inactividad', satisfecho: 'meh', comentario, phone: from });
         } catch (e) {
           console.error('Error guardando feedback:', e);

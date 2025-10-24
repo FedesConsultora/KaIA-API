@@ -61,7 +61,7 @@ export async function getState(phone) {
 
 export async function isLogged(phone) {
   const s = await WhatsAppSession.findOne({ where: { phone } });
-  return !!(s && s.state === 'verified' && s.cuit && !isExpired(s));
+  return !!(s && s.cuit && !isExpired(s));
 }
 
 export async function setPending(phone, pending) {
