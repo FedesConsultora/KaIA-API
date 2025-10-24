@@ -14,20 +14,12 @@ import {
 } from '../services/waSessionService.js';
 import { detectarIntent } from '../services/intentService.js';
 import {
-  getVetByCuit, firstName, isValidEmail, updateVetEmail, updateVetName
+  getVetByCuit, firstName, isValidEmail, updateVetEmail, updateVetName, isValidCuitNumber
 } from '../services/userService.js';
 import { WhatsAppSession, Promocion } from '../models/index.js';
 import { t } from '../config/texts.js';
 
 const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || 'dev-token';
-
-/* ========== Mensaje CUIT (fijo, siempre este) ========== */
-const CUIT_PROMPT = `👋 ¡Hola! Soy KaIA, tu asistente virtual de KrönenVet.
-
-Estoy acá para ayudarte con consultas sobre productos, stock y tu cuenta corriente.  
-Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad profesional. 🩺
-
-📌 Por favor, escribime tu **CUIT sin guiones ni espacios** para validar tu identidad.`;
 
 /* ========== VERIFY (hub.challenge) ========== */
 export function handleWhatsAppVerify(req, res) {
@@ -59,7 +51,6 @@ function extractIncomingMessages(body) {
               out.push({ from, text: String(it.list_reply.id).trim() });
             }
             if (it.type === 'button_reply' && it.button_reply?.id) {
-              // Por compatibilidad: si alguna vez llega un botón, lo tratamos como texto
               out.push({ from, text: String(it.button_reply.id).trim() });
             }
           }
@@ -97,7 +88,7 @@ async function sendConfirmList(from, body, yesId = 'confirm.si', noId = 'confirm
   await sendWhatsAppList(from, body, sections, header, 'Elegí');
 }
 
-/* ===== Helper de recomendación ===== */
+/* ===== Helper de recomendación (multi-producto soportado) ===== */
 async function handleConsulta(from, nombre, consultaRaw) {
   const consulta = (consultaRaw || '').trim();
   if (!consulta) {
@@ -105,7 +96,7 @@ async function handleConsulta(from, nombre, consultaRaw) {
     return;
   }
 
-  // Soporta varios productos (hasta 3)
+  // Puede devolver varios válidos
   const { validos = [], top, similares = [] } = await recomendarDesdeBBDD(consulta);
   const productosValidos = Array.isArray(validos) && validos.length
     ? validos.slice(0, 3)
@@ -161,22 +152,39 @@ export async function handleWhatsAppMessage(req, res) {
       const session = await getOrCreateSession(from);
       await ensureExpiry(session);
 
-      console.log('[WH] from=%s state=%s text="%s"', from, session.state, (text || '').slice(0, 120));
+      console.log(`[RX] from=${from} state=${session.state} text="${(text || '').slice(0, 160)}"`);
 
       /* ====== Gating por CUIT ====== */
       if (session.state !== 'verified' || isExpired(session) || !session.cuit) {
         const digits = (text || '').replace(/\D/g, '');
+
         if (/^\d{11}$/.test(digits)) {
-          await upsertVerified(from, digits);
+          // 1) Checksum AFIP
+          if (!isValidCuitNumber(digits)) {
+            console.log(`[AUTH] CUIT inválido (checksum): ${digits}`);
+            await sendWhatsAppText(from, t('bad_cuit'));
+            continue;
+          }
+
+          // 2) Debe existir en BBDD
           const vet = await getVetByCuit(digits);
+          if (!vet) {
+            console.log(`[AUTH] CUIT no encontrado en BBDD: ${digits}`);
+            await sendWhatsAppText(from, t('bad_cuit'));
+            continue;
+          }
+
+          // 3) OK: upsert y bienvenida con nombre
+          await upsertVerified(from, digits);
           const nombre = firstName(vet?.nombre) || '';
           const ttl = Number(process.env.CUIT_VERIFY_TTL_DAYS || process.env.WHATSAPP_SESSION_TTL_DAYS || 60);
           await sendWhatsAppText(from, t('ok_cuit', { nombre, ttl }));
           await sendMainList(from, nombre);
           continue;
         }
-        // Mensaje CUIT fijo
-        await sendWhatsAppText(from, CUIT_PROMPT);
+
+        // Si no son 11 dígitos, pedimos CUIT con el texto centralizado
+        await sendWhatsAppText(from, t('ask_cuit'));
         continue;
       }
 
@@ -255,7 +263,7 @@ export async function handleWhatsAppMessage(req, res) {
           if (action === 'logout') {
             await clearPending(from);
             await logout(from);
-            // Despedimos y NO pedimos CUIT acá; recién en el siguiente mensaje
+            // Despedimos y NO mostramos menú; el próximo input pedirá CUIT si corresponde
             await sendWhatsAppText(from, t('logout_ok'));
             continue;
           }
@@ -362,7 +370,7 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // (Opcional) Ejecutivo: no lo mostramos en el menú, pero si el usuario lo pide, respondemos
+      // Ejecutivo a contacto (formato Meta)
       if (intent === 'humano') {
         const ej = vet?.EjecutivoCuenta;
         if (ej) {
@@ -403,7 +411,7 @@ export async function handleWhatsAppMessage(req, res) {
         const comentario = (text || '').trim().slice(0, 3000);
         if (!comentario) { await sendWhatsAppText(from, '¿Podés escribir tu comentario? 👇'); continue; }
         try {
-          // Guardado opcional en tu modelo Feedback
+          // Guardado opcional:
           // await Feedback.create({ flow_id: 'feedback_inactividad', satisfecho: 'meh', comentario, phone: from });
         } catch (e) {
           console.error('Error guardando feedback:', e);
@@ -415,19 +423,19 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // ====== Saludos/ayuda/gracias → SOLO LISTA (sin menú textual)
+      // ====== Saludos/ayuda/gracias → SOLO LISTA
       if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent)) {
         await sendMainList(from, nombre);
         continue;
       }
 
-      // ====== Despedida (sólo texto, sin lista)
+      // ====== Despedida (sólo texto)
       if (intent === 'despedida') {
         await sendWhatsAppText(from, t('despedida', { nombre }));
         continue;
       }
 
-      // ====== Fallback: interpretamos como consulta libre
+      // ====== Fallback: consulta libre
       await handleConsulta(from, nombre, text);
     }
   } catch (err) {

@@ -11,13 +11,11 @@ export async function recomendarProducto(req, res) {
     const mensajeVet = req.body?.mensaje || req.query?.mensaje;
     if (!mensajeVet) return res.status(400).json({ ok: false, msg: 'Falta mensaje' });
 
-    // 1) Buscar candidatos y similares SOLO desde BBDD
+    // 1) Buscar candidatos y similares SOLO desde BBDD (multi-producto)
     const { validos = [], top, similares = [] } = await recomendarDesdeBBDD(mensajeVet);
 
     // 2) Pasar a GPT 1..3 productos válidos (si hay) + similares
-    const productosValidos = Array.isArray(validos) && validos.length
-      ? validos.slice(0, 3)
-      : (top ? [top] : []);
+    const productosValidos = validos.length ? validos.slice(0, 3) : (top ? [top] : []);
 
     // 3) Responder con GPT (formato y reglas estrictas)
     const respuesta = await responderConGPTStrict(mensajeVet, { productosValidos, similares });

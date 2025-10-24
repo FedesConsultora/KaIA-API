@@ -39,9 +39,14 @@ export function toGPTProduct(p) {
   };
 }
 
+/**
+ * Devuelve { validos: [], top, similares: [] }
+ * - validos: hasta 3 mejores matches (para respuesta principal)
+ * - similares: 3 siguientes para sugerencias
+ */
 export async function recomendarDesdeBBDD(termRaw = '') {
   const term = (termRaw || '').trim();
-  if (!term) return { top: null, similares: [] };
+  if (!term) return { validos: [], top: null, similares: [] };
 
   const expanded = expandTerms(term);
   const likeOr = [];
@@ -59,7 +64,7 @@ export async function recomendarDesdeBBDD(termRaw = '') {
       order: [['cantidad', 'DESC']],
       limit: 3,
     });
-    return { top: null, similares: similares.map(toGPTProduct) };
+    return { validos: [], top: null, similares: similares.map(toGPTProduct) };
   }
 
   const tokens = expanded;
@@ -74,10 +79,12 @@ export async function recomendarDesdeBBDD(termRaw = '') {
       s += (Number(p.cantidad) || 0) / 1000; // leve sesgo a disponibilidad
       return { p, s };
     })
-    .sort((a, b) => b.s - a.s);
+    .sort((a, b) => b.s - a.s)
+    .map(x => x.p);
 
-  const top = scored[0]?.p || null;
-  const similares = scored.slice(1, 4).map((x) => x.p);
+  const validos = scored.slice(0, 3).map(toGPTProduct);
+  const top = validos[0] || null;
+  const similares = scored.slice(3, 6).map(toGPTProduct);
 
-  return { top: top ? toGPTProduct(top) : null, similares: similares.map(toGPTProduct) };
+  return { validos, top, similares };
 }

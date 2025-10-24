@@ -35,7 +35,7 @@ export async function listarFeedback(req, res) {
 
     const rows = await Feedback.findAll({
       where,
-      order: [['created_at', 'DESC']],
+      order: [['creado_en', 'DESC']],   // 👈 usa tu columna real
       limit: 500
     });
 
@@ -49,7 +49,7 @@ export async function listarFeedback(req, res) {
 /** Listado Admin (vista) */
 export async function listAdmin(_req, res) {
   const rows = await Feedback.findAll({
-    order: [['created_at', 'DESC']],
+    order: [['creado_en', 'DESC']],     // 👈 usa tu columna real
     limit: 500
   });
   const items = rows.map(r => r.get({ plain: true }));
