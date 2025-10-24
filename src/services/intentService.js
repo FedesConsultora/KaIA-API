@@ -1,7 +1,6 @@
-// src/services/intentService.js
 /**
  * Devuelve una de:
- * 'vacio' | 'saludo' | 'menu' | 'ayuda' | 'humano' |
+ * 'vacio' | 'saludo' | 'menu' | 'ayuda' | 'humano' | 'buscar' |
  * 'editar' | 'editar_nombre' | 'editar_email' |
  * 'confirm_si' | 'confirm_no' | 'logout' |
  * 'gracias' | 'despedida' | 'recomendacion' |
@@ -24,7 +23,7 @@ const RX = {
 };
 
 const BUTTON_IDS = new Map([
-  ['buscar', 'recomendacion'],
+  ['buscar', 'buscar'],
   ['humano', 'humano'],
   ['editar', 'editar'],
   ['editar_nombre', 'editar_nombre'],
@@ -60,4 +59,3 @@ export function detectarIntent(texto = '') {
 
   return 'recomendacion';
 }
-

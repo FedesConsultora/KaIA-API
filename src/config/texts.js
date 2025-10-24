@@ -1,9 +1,8 @@
-// src/config/texts.js
 const TEXTS = {
   brand: { nombre: 'KronenVet' },
 
   // Saludos y menú
-  saludo: '¡Hola {nombre}! 👋 Soy KaIA, tu asistente.',
+  saludo: '¡Hola {nombre}! 👋',
   menu_main:
     '¿En qué te ayudo hoy?\n' +
     '• 🔍 Buscar producto (nombre, marca o necesidad)\n' +
@@ -12,19 +11,18 @@ const TEXTS = {
 
   // CUIT / verificación
   ask_cuit: 'Para continuar, decime tu CUIT (11 dígitos, sin guiones).',
-  bad_cuit: 'No encuentro ese CUIT en la base. ¿Lo revisás o querés que te contacte tu ejecutivo?',
+  bad_cuit: 'No encuentro ese CUIT en la base de clientes. ¿Podés revisarlo o contactarte con tu ejecutivo?',
   ok_cuit: '¡Listo {nombre}! CUIT verificado ✅ Tu sesión vale {ttl} días.',
 
   // Recomendación
   pedir_consulta: 'Contame qué necesitás (nombre comercial, marca o para qué lo buscás).',
   no_match:
-    'No encontré productos con esa descripción.\n' +
-    '• Probá con el nombre comercial o la marca.\n' +
-    '• Si preferís, te conecto con tu ejecutivo.',
+    'No encontré productos con esa descripción. Probá con el nombre comercial o la marca.\n' +
+    'Si preferís, puedo ponerte en contacto con tu ejecutivo.',
 
-  // Edición de datos
+  // Edición + confirmaciones
   editar_intro: 'Podés actualizar tus datos. ¿Qué querés cambiar?',
-  editar_pedir_nombre: 'Decime cómo querés que figure tu nombre (ej: “Clínica San Martín”).',
+  editar_pedir_nombre: 'Decime tu nombre tal como querés que figure (por ejemplo: “Clínica San Martín”).',
   editar_confirmar_nombre: 'Vas a cambiar tu nombre a:\n“{valor}”\n\n¿Confirmás el cambio?',
   editar_ok_nombre: '¡Hecho, {nombre}! Actualicé tu nombre. ✍️',
 
@@ -47,8 +45,8 @@ const TEXTS = {
   ejecutivo_sin_asignar: 'Todavía no tenés un ejecutivo asignado. Avisanos y te contactamos a la brevedad.',
 
   // Ayuda / otros
-  ayuda: 'Soy KaIA, asistente de {marca}. Puedo recomendar productos, conectarte con tu ejecutivo y ayudarte con tus datos.',
-  despedida: '¡Gracias por escribirnos, {nombre}}! 🙌', // si querés, corregí a {nombre}
+  ayuda: 'Soy KaIA, asistente de {marca}. Puedo recomendar productos, conectarte con tu ejecutivo y actualizar tus datos.',
+  despedida: '¡Gracias por escribirnos, {nombre}! 🙌',
   error_generico: 'Tuvimos un inconveniente. Probá de nuevo en unos segundos.'
 };
 

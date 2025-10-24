@@ -1,4 +1,3 @@
-// src/app.js
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import swaggerUI from 'swagger-ui-express';
@@ -20,7 +19,7 @@ import { allowInsecurePrototypeAccess } from '@handlebars/allow-prototype-access
 import webhookRouter from './routes/webhookRouter.js';
 import Handlebars from 'handlebars';
 
-// ⚠️ NUEVAS RUTAS
+// Rutas nuevas
 import catalogoRouter from './routes/catalogoRouter.js';
 import recomendacionRouter from './routes/recomendacionRouter.js';
 import { startFeedbackScheduler } from './jobs/feedbackScheduler.js';
@@ -29,16 +28,13 @@ const app = express();
 
 /* ---------- Seguridad de proxy ---------- */
 /**
- * Si corrés detrás de 1 proxy (Nginx / Render / Heroku), usá 1.
+ * Si corrés detrás de 1 proxy (Nginx/docker), usá 1.
  * Si NO hay proxy delante, usá false.
- * ¡Nunca 'true' (permite bypass de IP)!
+ * ¡Nunca 'true' literal!
  */
 const PROXY_HOPS = process.env.TRUST_PROXY_HOPS;
-if (PROXY_HOPS === 'false') {
-  app.set('trust proxy', false);
-} else {
-  app.set('trust proxy', Number(PROXY_HOPS || 1));
-}
+if (PROXY_HOPS === 'false') app.set('trust proxy', false);
+else app.set('trust proxy', Number(PROXY_HOPS || 1));
 
 /* ---------- Middlewares base ---------- */
 app.use(compression());
@@ -52,8 +48,8 @@ app.use(authDesdeCookie);
 
 /* ---------- Rate limiters ---------- */
 /**
- * Límite global para /api (rutas de app).
- * No lo aplicamos sobre el webhook para evitar reintentos innecesarios de Meta.
+ * Límite global para /api. Como usamos proxy, avisamos a express-rate-limit.
+ * No lo aplicamos sobre el webhook para evitar retries de Meta.
  */
 const apiLimiter = rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
@@ -61,12 +57,9 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Demasiadas solicitudes, intentá más tarde.',
+  trustProxy: !!app.get('trust proxy'), // <- clave para evitar ERR_ERL_PERMISSIVE_TRUST_PROXY
 });
 app.use('/api', apiLimiter);
-
-// (Opcional) un límite MUY laxo sólo para webhook (o ninguno)
-// const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 1200, standardHeaders: true, legacyHeaders: false });
-// app.use('/webhook/whatsapp', webhookLimiter);
 
 /* ---------- Handlebars (Admin) ---------- */
 const hbs = create({
@@ -89,12 +82,7 @@ const swaggerSpec = swaggerJsdoc({
       title: 'KaIA – API para Asistente Inteligente',
       version: '1.0.0',
       description: `
-      API REST del asistente conversacional **KaIA**, desarrollado para KronenVet.
-
-      Endpoints principales:
-      - Webhook de WhatsApp
-      - Recomendación de productos
-      - Catálogo (búsqueda/consulta)
+      API REST del asistente conversacional **KaIA** para KronenVet.
       `.trim(),
       contact: { name: 'Equipo KaIA', url: 'https://fedes.ai', email: 'soporte@fedes.ai' },
     },
@@ -114,7 +102,7 @@ app.use(session({
   saveUninitialized: true,
   cookie: {
     sameSite: 'lax',
-    secure: !!process.env.SESSION_SECURE, // setea a true si servís por HTTPS
+    secure: !!process.env.SESSION_SECURE, // true si HTTPS
   },
 }));
 app.use(flash());
@@ -137,7 +125,11 @@ app.get('/', (_req, res) => res.redirect('/admin'));
 app.use('/admin', adminRouter);
 app.use('/auth', authRouter);
 
-startFeedbackScheduler();
+/* ---------- Scheduler de feedback ---------- */
+if (String(process.env.FEEDBACK_SCHEDULER_ENABLED || 'true') === 'true') {
+  startFeedbackScheduler();
+}
+
 /* ---------- 404 / 500 ---------- */
 app.use((req, res) => res.status(404).json({ error: 'Not Found' }));
 app.use((err, _req, res, _next) => {
