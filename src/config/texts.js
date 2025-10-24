@@ -3,28 +3,28 @@ const TEXTS = {
   brand: { nombre: 'KronenVet' },
 
   // Saludos y menú
-  saludo: '¡Hola {nombre}! 👋',
+  saludo: '¡Hola {nombre}! 👋 Soy KaIA, tu asistente.',
   menu_main:
     '¿En qué te ayudo hoy?\n' +
-    '• 🔍 Buscar producto (por nombre, marca o necesidad)\n' +
+    '• 🔍 Buscar producto (nombre, marca o necesidad)\n' +
     '• 🧑‍💼 Hablar con tu ejecutivo\n' +
-    '• ✏️ Editar mis datos (nombre / email)\n' +
     '• 🚪 Cerrar sesión',
 
   // CUIT / verificación
   ask_cuit: 'Para continuar, decime tu CUIT (11 dígitos, sin guiones).',
-  bad_cuit: 'No encuentro ese CUIT en la base de clientes. ¿Podés revisarlo o contactarte con tu ejecutivo?',
+  bad_cuit: 'No encuentro ese CUIT en la base. ¿Lo revisás o querés que te contacte tu ejecutivo?',
   ok_cuit: '¡Listo {nombre}! CUIT verificado ✅ Tu sesión vale {ttl} días.',
 
   // Recomendación
   pedir_consulta: 'Contame qué necesitás (nombre comercial, marca o para qué lo buscás).',
   no_match:
-    'No encontré productos con esa descripción. Probá con el nombre comercial o la marca.\n' +
-    'Si preferís, puedo ponerte en contacto con tu ejecutivo.',
+    'No encontré productos con esa descripción.\n' +
+    '• Probá con el nombre comercial o la marca.\n' +
+    '• Si preferís, te conecto con tu ejecutivo.',
 
-  // Edición de datos + confirmaciones
+  // Edición de datos
   editar_intro: 'Podés actualizar tus datos. ¿Qué querés cambiar?',
-  editar_pedir_nombre: 'Decime tu nombre tal como querés que figure (por ejemplo: “Clínica San Martín”).',
+  editar_pedir_nombre: 'Decime cómo querés que figure tu nombre (ej: “Clínica San Martín”).',
   editar_confirmar_nombre: 'Vas a cambiar tu nombre a:\n“{valor}”\n\n¿Confirmás el cambio?',
   editar_ok_nombre: '¡Hecho, {nombre}! Actualicé tu nombre. ✍️',
 
@@ -33,7 +33,7 @@ const TEXTS = {
   editar_ok_email: 'Perfecto {nombre}, guardé tu email {email}. 📧',
   editar_email_invalido: 'Ese email no parece válido. Probá de nuevo (ej: ejemplo@dominio.com).',
 
-  // Logout + confirmación
+  // Logout
   logout_confirm: '¿Querés cerrar sesión ahora? Vas a tener que volver a verificar tu CUIT.\n\n¿Confirmás cerrar sesión?',
   logout_ok: 'Cerré tu sesión. Cuando quieras seguir, decime tu CUIT para verificarte de nuevo.',
 
@@ -47,8 +47,8 @@ const TEXTS = {
   ejecutivo_sin_asignar: 'Todavía no tenés un ejecutivo asignado. Avisanos y te contactamos a la brevedad.',
 
   // Ayuda / otros
-  ayuda: 'Soy KaIA, asistente de {marca}. Puedo recomendar productos, conectarte con tu ejecutivo y actualizar tus datos.',
-  despedida: '¡Gracias por escribirnos, {nombre}}! 🙌',
+  ayuda: 'Soy KaIA, asistente de {marca}. Puedo recomendar productos, conectarte con tu ejecutivo y ayudarte con tus datos.',
+  despedida: '¡Gracias por escribirnos, {nombre}}! 🙌', // si querés, corregí a {nombre}
   error_generico: 'Tuvimos un inconveniente. Probá de nuevo en unos segundos.'
 };
 

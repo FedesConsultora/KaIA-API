@@ -1,6 +1,6 @@
 // src/controllers/webhookController.js
 import 'dotenv/config';
-import { sendWhatsAppText, sendWhatsAppButtons, sendWhatsAppContacts } from '../services/whatsappService.js';
+import { sendWhatsAppText, sendWhatsAppButtons, sendWhatsAppContacts, sendWhatsAppList } from '../services/whatsappService.js';
 import { recomendarDesdeBBDD } from '../services/recommendationService.js';
 import { responderConGPTStrict } from '../services/gptService.js';
 import {
@@ -36,7 +36,7 @@ function extractIncomingMessages(body) {
           if (m.type === 'interactive') {
             const it = m.interactive || {};
             if (it.type === 'button_reply' && it.button_reply?.id) out.push({ from, text: String(it.button_reply.id).trim() });
-            if (it.type === 'list_reply' && it.list_reply?.id) out.push({ from, text: String(it.list_reply.id).trim() });
+            if (it.type === 'list_reply' && it.list_reply?.id)   out.push({ from, text: String(it.list_reply.id).trim() });
           }
         }
       }
@@ -45,27 +45,45 @@ function extractIncomingMessages(body) {
   return out;
 }
 
+/* ========= MENÚS ========= */
+
+// Máximo 3 botones (Cloud API). Incluimos "Salir".
 function mainButtons() {
   return [
-    { id: 'buscar', title: '🔍 Buscar producto' },
-    { id: 'humano', title: '🧑‍💼 Hablar con ejecutivo' },
-    { id: 'editar', title: '✏️ Editar mis datos' },
-    { id: 'logout', title: '🚪 Cerrar sesión' }
+    { id: 'buscar',  title: '🔍 Buscar' },
+    { id: 'humano',  title: '🧑‍💼 Ejecutivo' },
+    { id: 'logout',  title: '🚪 Salir' }
   ];
 }
-function editButtons() {
-  return [
-    { id: 'editar_nombre', title: '📝 Cambiar nombre' },
-    { id: 'editar_email', title: '📧 Cambiar email' },
-    { id: 'cancelar', title: '↩️ Volver' }
-  ];
+
+// Menú extendido vía List (más de 3 opciones sin romper límites)
+async function sendExtendedMenu(from, nombre) {
+  const body = 'Además del menú rápido, tenés estas opciones:';
+  const sections = [{
+    title: 'Accesos rápidos',
+    rows: [
+      { id: 'editar',         title: '✏️ Mis datos',           description: 'Cambiar nombre o email' },
+      { id: 'buscar',         title: '🔍 Buscar producto',     description: 'Nombre, marca o necesidad' },
+      { id: 'humano',         title: '🧑‍💼 Ejecutivo',          description: 'Te comparto su contacto' },
+      { id: 'logout',         title: '🚪 Cerrar sesión',        description: 'Requiere verificar CUIT al volver' }
+    ]
+  }];
+  await sendWhatsAppList(from, body, sections, `Hola ${nombre}`, 'Elegí una opción');
 }
-function confirmButtons() {
-  return [
-    { id: 'confirm_yes', title: '✅ Sí, confirmar' },
-    { id: 'confirm_no',  title: '↩️ No, cancelar' }
-  ];
+
+// Debounce de menú por usuario (evita spam)
+const lastMenuAt = new Map();
+async function pushMenu(from, nombre, { extended = false } = {}) {
+  const now = Date.now();
+  const last = lastMenuAt.get(from) || 0;
+  if (now - last < 2 * 60 * 1000) return; // 2 min
+  lastMenuAt.set(from, now);
+
+  await sendWhatsAppButtons(from, t('menu_main', { nombre }), mainButtons());
+  if (extended) await sendExtendedMenu(from, nombre);
 }
+
+/* ========= CONTROLLER ========= */
 
 export async function handleWhatsAppMessage(req, res) {
   try {
@@ -87,7 +105,7 @@ export async function handleWhatsAppMessage(req, res) {
           const nombre = firstName(vet?.nombre) || '';
           const ttl = Number(process.env.CUIT_VERIFY_TTL_DAYS || process.env.WHATSAPP_SESSION_TTL_DAYS || 60);
           await sendWhatsAppText(from, t('ok_cuit', { nombre, ttl }));
-          await sendWhatsAppButtons(from, t('menu_main', { nombre }), mainButtons());
+          await pushMenu(from, nombre, { extended: true });
           continue;
         }
         await sendWhatsAppText(from, t('ask_cuit'));
@@ -102,7 +120,7 @@ export async function handleWhatsAppMessage(req, res) {
       const state = await getState(from);
       const pending = await getPending(from);
 
-      // --- Captura de NUEVO NOMBRE (primero guardamos lo escrito y pedimos confirmación)
+      // --- Captura de NUEVO NOMBRE
       if (state === 'awaiting_nombre_value') {
         const nuevo = String(text || '').trim().slice(0, 120);
         if (!nuevo) {
@@ -111,11 +129,14 @@ export async function handleWhatsAppMessage(req, res) {
         }
         await setPending(from, { action: 'edit_nombre', value: nuevo });
         await setState(from, 'confirm');
-        await sendWhatsAppButtons(from, t('editar_confirmar_nombre', { valor: nuevo }), confirmButtons());
+        await sendWhatsAppButtons(from, t('editar_confirmar_nombre', { valor: nuevo }), [
+          { id: 'confirm_yes', title: '✅ Confirmar' },
+          { id: 'confirm_no',  title: '↩️ Cancelar' }
+        ]);
         continue;
       }
 
-      // --- Captura de NUEVO EMAIL (guardamos y pedimos confirmación)
+      // --- Captura de NUEVO EMAIL
       if (state === 'awaiting_email_value') {
         const email = String(text || '').trim();
         if (!isValidEmail(email)) {
@@ -124,24 +145,27 @@ export async function handleWhatsAppMessage(req, res) {
         }
         await setPending(from, { action: 'edit_email', value: email });
         await setState(from, 'confirm');
-        await sendWhatsAppButtons(from, t('editar_confirmar_email', { valor: email }), confirmButtons());
+        await sendWhatsAppButtons(from, t('editar_confirmar_email', { valor: email }), [
+          { id: 'confirm_yes', title: '✅ Confirmar' },
+          { id: 'confirm_no',  title: '↩️ Cancelar' }
+        ]);
         continue;
       }
 
-      // --- Estado de confirmación genérico
+      // --- Confirmaciones
       if (state === 'confirm') {
         const intent = detectarIntent(text);
         if (intent === 'confirm_no') {
           await clearPending(from);
           await setState(from, 'verified');
           await sendWhatsAppText(from, t('cancelado'));
-          await sendWhatsAppButtons(from, t('menu_main', { nombre }), mainButtons());
+          await pushMenu(from, nombre, { extended: true });
           continue;
         }
         if (intent === 'confirm_si') {
           if (!pending) {
             await setState(from, 'verified');
-            await sendWhatsAppButtons(from, t('menu_main', { nombre }), mainButtons());
+            await pushMenu(from, nombre, { extended: true });
             continue;
           }
           const { action, value } = pending;
@@ -152,7 +176,7 @@ export async function handleWhatsAppMessage(req, res) {
             await setState(from, 'verified');
             const nombreNuevo = firstName(value) || nombre;
             await sendWhatsAppText(from, t('editar_ok_nombre', { nombre: nombreNuevo }));
-            await sendWhatsAppButtons(from, t('menu_main', { nombre: nombreNuevo }), mainButtons());
+            await pushMenu(from, nombreNuevo, { extended: true });
             continue;
           }
           if (action === 'edit_email') {
@@ -160,7 +184,7 @@ export async function handleWhatsAppMessage(req, res) {
             await clearPending(from);
             await setState(from, 'verified');
             await sendWhatsAppText(from, t('editar_ok_email', { nombre, email: value }));
-            await sendWhatsAppButtons(from, t('menu_main', { nombre }), mainButtons());
+            await pushMenu(from, nombre, { extended: true });
             continue;
           }
           if (action === 'logout') {
@@ -175,30 +199,40 @@ export async function handleWhatsAppMessage(req, res) {
           await clearPending(from);
           await setState(from, 'verified');
           await sendWhatsAppText(from, t('cancelado'));
-          await sendWhatsAppButtons(from, t('menu_main', { nombre }), mainButtons());
+          await pushMenu(from, nombre, { extended: true });
           continue;
         }
-        // Si manda cualquier otra cosa, le re-mostramos los botones de confirmación
+
+        // Re-mostrar confirmación si escribe otra cosa
         if (pending?.action === 'edit_nombre') {
-          await sendWhatsAppButtons(from, t('editar_confirmar_nombre', { valor: pending.value }), confirmButtons());
+          await sendWhatsAppButtons(from, t('editar_confirmar_nombre', { valor: pending.value }), [
+            { id: 'confirm_yes', title: '✅ Confirmar' },
+            { id: 'confirm_no',  title: '↩️ Cancelar' }
+          ]);
         } else if (pending?.action === 'edit_email') {
-          await sendWhatsAppButtons(from, t('editar_confirmar_email', { valor: pending.value }), confirmButtons());
+          await sendWhatsAppButtons(from, t('editar_confirmar_email', { valor: pending.value }), [
+            { id: 'confirm_yes', title: '✅ Confirmar' },
+            { id: 'confirm_no',  title: '↩️ Cancelar' }
+          ]);
         } else if (pending?.action === 'logout') {
-          await sendWhatsAppButtons(from, t('logout_confirm'), confirmButtons());
+          await sendWhatsAppButtons(from, t('logout_confirm'), [
+            { id: 'confirm_yes', title: '✅ Confirmar' },
+            { id: 'confirm_no',  title: '↩️ Cancelar' }
+          ]);
         } else {
           await clearPending(from);
           await setState(from, 'verified');
-          await sendWhatsAppButtons(from, t('menu_main', { nombre }), mainButtons());
+          await pushMenu(from, nombre, { extended: true });
         }
         continue;
       }
 
-      // ====== Intent routing
+      // ====== Intents
       const intent = detectarIntent(text);
 
       if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent)) {
         if (intent === 'saludo') await sendWhatsAppText(from, t('saludo', { nombre }));
-        await sendWhatsAppButtons(from, t('menu_main', { nombre }), mainButtons());
+        await pushMenu(from, nombre, { extended: true });
         continue;
       }
 
@@ -208,7 +242,11 @@ export async function handleWhatsAppMessage(req, res) {
       }
 
       if (intent === 'editar') {
-        await sendWhatsAppButtons(from, t('editar_intro'), editButtons());
+        await sendWhatsAppButtons(from, t('editar_intro'), [
+          { id: 'editar_nombre', title: '📝 Nombre' },
+          { id: 'editar_email',  title: '📧 Email' },
+          { id: 'cancelar',      title: '↩️ Volver' }
+        ]);
         continue;
       }
 
@@ -227,7 +265,10 @@ export async function handleWhatsAppMessage(req, res) {
       if (intent === 'logout') {
         await setPending(from, { action: 'logout' });
         await setState(from, 'confirm');
-        await sendWhatsAppButtons(from, t('logout_confirm'), confirmButtons());
+        await sendWhatsAppButtons(from, t('logout_confirm'), [
+          { id: 'confirm_yes', title: '✅ Confirmar' },
+          { id: 'confirm_no',  title: '↩️ Cancelar' }
+        ]);
         continue;
       }
 
@@ -243,17 +284,60 @@ export async function handleWhatsAppMessage(req, res) {
         } else {
           await sendWhatsAppText(from, t('ejecutivo_sin_asignar'));
         }
+        await pushMenu(from, nombre);
+        continue;
+      }
+      // --- Feedback botones rápidos
+      if (intent === 'feedback_ok') {
+        await sendWhatsAppText(from, '¡Genial! Gracias por contarnos. 🙌');
+        await pushMenu(from, nombre);
+        continue;
+      }
+      if (intent === 'feedback_meh') {
+        await sendWhatsAppText(from, 'Gracias. ¿Qué te gustaría mejorar? Escribilo en un mensaje 👇');
+        await setState(from, 'awaiting_feedback_text');
+        continue;
+      }
+      if (intent === 'feedback_txt') {
+        await sendWhatsAppText(from, 'Te leo 👇 Contame en un mensaje qué mejorarías.');
+        await setState(from, 'awaiting_feedback_text');
         continue;
       }
 
-      // ====== Recomendación (IA con guardrails)
+      // --- Captura de comentario libre de feedback
+      if (state === 'awaiting_feedback_text') {
+        const comentario = (text || '').trim().slice(0, 3000);
+        if (!comentario) {
+          await sendWhatsAppText(from, '¿Podés escribir tu comentario? 👇');
+          continue;
+        }
+
+        // Guardar Feedback (si tenés usuarioId por CUIT, resolvelo)
+        try {
+          await Feedback.create({
+            flow_id: 'feedback_inactividad',
+            satisfecho: 'meh',
+            comentario
+            // opcional: usuarioId, phone, cuit, etc.
+          });
+        } catch (e) {
+          console.error('Error guardando feedback:', e);
+        }
+
+        await setState(from, 'verified');
+        await sendWhatsAppText(from, '¡Gracias! Registré tu comentario. 💬');
+        await pushMenu(from, nombre);
+        continue;
+      }
+
+      // ====== Recomendación (BBDD + GPT con guardrails)
       const consulta = (text || '').trim();
       const { top, similares } = await recomendarDesdeBBDD(consulta);
 
       if (!top && !similares.length) {
         await sendWhatsAppButtons(from, t('no_match'), [
-          { id: 'buscar', title: '🔁 Intentar otra búsqueda' },
-          { id: 'humano', title: '🧑‍💼 Hablar con ejecutivo' }
+          { id: 'buscar', title: '🔁 Intentar' },
+          { id: 'humano', title: '🧑‍💼 Ejecutivo' }
         ]);
         continue;
       }
@@ -269,8 +353,8 @@ export async function handleWhatsAppMessage(req, res) {
       }
 
       await sendWhatsAppText(from, respuesta);
-      // (opcional) renovar TTL en cada interacción:
-      // await bumpExpiry(from);
+      await pushMenu(from, nombre, { extended: true });
+      // (opcional) renovar TTL: // await bumpExpiry(from);
     }
   } catch (err) {
     console.error('❌ Error en webhook WhatsApp:', err);

@@ -4,7 +4,8 @@
  * 'vacio' | 'saludo' | 'menu' | 'ayuda' | 'humano' |
  * 'editar' | 'editar_nombre' | 'editar_email' |
  * 'confirm_si' | 'confirm_no' | 'logout' |
- * 'gracias' | 'despedida' | 'recomendacion'
+ * 'gracias' | 'despedida' | 'recomendacion' |
+ * 'feedback_ok' | 'feedback_meh' | 'feedback_txt'
  */
 
 const RX = {
@@ -17,9 +18,9 @@ const RX = {
   editar: /(editar|actualizar|cambiar)\s+(mis\s+)?(datos|perfil)/i,
   editar_nombre: /(cambi(ar|o)\s+)?(mi\s+)?nombre|actualizar\s+nombre/i,
   editar_email: /(cambi(ar|o)\s+)?(mi\s+)?email|correo|mail/i,
-  logout: /(cerrar\s+sesión|cerrar\s+sesion|logout|salir|deslogue(ar|arse))/i,
-  confirm_si: /^(si|sí|s|ok|dale|confirmo|acepto)$/i,
-  confirm_no: /^(no|n|cancelar|volver)$/i
+  logout: /(cerrar\s+sesión|cerrar\s+sesion|logout|salir|deslogue(ar|arse)|cerrar)$/i,
+  confirm_si: /^(si|sí|s|ok|dale|confirmo|acepto|afirmativo)$/i,
+  confirm_no: /^(no|n|cancelar|volver|negativo)$/i
 };
 
 const BUTTON_IDS = new Map([
@@ -30,9 +31,12 @@ const BUTTON_IDS = new Map([
   ['editar_email', 'editar_email'],
   ['logout', 'logout'],
   ['cancelar', 'menu'],
-  // confirmaciones:
   ['confirm_yes', 'confirm_si'],
-  ['confirm_no', 'confirm_no']
+  ['confirm_no', 'confirm_no'],
+  // feedback
+  ['fb_ok',  'feedback_ok'],
+  ['fb_meh', 'feedback_meh'],
+  ['fb_txt', 'feedback_txt']
 ]);
 
 export function detectarIntent(texto = '') {
@@ -56,3 +60,4 @@ export function detectarIntent(texto = '') {
 
   return 'recomendacion';
 }
+
