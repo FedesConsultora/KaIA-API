@@ -1,7 +1,7 @@
 // src/services/gptService.js
 import OpenAI from 'openai';
 import 'dotenv/config';
-import { getPromptSystemStrict } from './promptTemplate.js';
+import { getPromptSystemStrict, getPromptQueryExtract } from './promptTemplate.js';
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini-2024-07-18';
 
@@ -15,12 +15,9 @@ if (process.env.OPENAI_API_KEY) {
 export async function responderConGPTStrict(mensajeVet, { productosValidos = [], similares = [] } = {}) {
   const system = getPromptSystemStrict({ productosValidos, similares });
 
-  // Simulación si falta API key (multi-producto)
   if (!openai) {
     if (!productosValidos.length) {
-      const sims = similares.slice(0, 3).map(s => `• ${s.nombre}${s.marca ? ` (${s.marca})` : ''}`).join('\n');
-      const simsBlock = sims ? `\n${sims}\n\nDecime el nombre para ver detalles.` : '';
-      return `No encontré ese producto en el catálogo de KrönenVet. ¿Podés darme nombre comercial o marca?${simsBlock}`;
+      return `No encontré ese producto en el catálogo de KrönenVet. ¿Podés darme nombre comercial o marca?`;
     }
     const bloques = productosValidos.slice(0, 3).map(p => {
       const precio = p.precio ? ` $${Number(p.precio).toFixed(0)}` : '(consultar)';
@@ -50,9 +47,7 @@ export async function responderConGPTStrict(mensajeVet, { productosValidos = [],
     console.error('❌ Error OpenAI:', error);
     // Fallback multi-producto
     if (!productosValidos.length) {
-      const sims = similares.slice(0, 3).map(s => `• ${s.nombre}${s.marca ? ` (${s.marca})` : ''}`).join('\n');
-      const simsBlock = sims ? `\n${sims}\n\nDecime el nombre para ver detalles.` : '';
-      return `No encontré ese producto en el catálogo de KrönenVet. ¿Podés darme nombre comercial o marca?${simsBlock}`;
+      return `No encontré ese producto en el catálogo de KrönenVet. ¿Podés darme nombre comercial o marca?`;
     }
     const bloques = productosValidos.slice(0, 3).map(p => {
       const precio = p.precio ? ` $${Number(p.precio).toFixed(0)}` : '(consultar)';
@@ -66,5 +61,50 @@ export async function responderConGPTStrict(mensajeVet, { productosValidos = [],
       ].join('\n');
     });
     return bloques.join('\n\n');
+  }
+}
+
+/** ---------- NUEVO: extractor de términos para enriquecer la búsqueda ---------- */
+const STOP = new Set(['de','para','por','con','sin','y','o','la','el','los','las','un','una','unos','unas','que','del','al','en','a','se']);
+
+const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
+
+/** Heurística offline si no hay API */
+function naiveExtract(query) {
+  const toks = norm(query).split(/\s+/).filter(Boolean).filter(w => !STOP.has(w));
+  // Muy simple: si tiene pinta de PA o marca (palabra larga) la ponemos en should
+  const should = Array.from(new Set(toks)).slice(0, 12);
+  return { must: [], should, negate: [] };
+}
+
+/**
+ * Devuelve { must:[], should:[], negate:[] } para pasar a la capa SQL/score.
+ */
+export async function extraerTerminosBusqueda(query) {
+  if (!query || typeof query !== 'string') return { must: [], should: [], negate: [] };
+
+  if (!openai) return naiveExtract(query);
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: getPromptQueryExtract() },
+        { role: 'user',   content: query }
+      ],
+      temperature: 0
+    });
+
+    let raw = completion.choices?.[0]?.message?.content || '{}';
+    // Limpieza: por si el modelo agrega markdown
+    raw = raw.trim().replace(/^\s*```json\s*|\s*```\s*$/g, '');
+    const parsed = JSON.parse(raw);
+    const must   = Array.isArray(parsed.must)   ? parsed.must.map(norm)   : [];
+    const should = Array.isArray(parsed.should) ? parsed.should.map(norm) : [];
+    const negate = Array.isArray(parsed.negate) ? parsed.negate.map(norm) : [];
+    return { must, should, negate };
+  } catch (e) {
+    console.error('⚠️ extraerTerminosBusqueda fallback:', e?.message);
+    return naiveExtract(query);
   }
 }

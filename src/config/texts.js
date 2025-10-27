@@ -16,9 +16,16 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   ok_cuit: '¡Listo {nombre}! CUIT verificado ✅ Tu sesión vale {ttl} días.',
 
   pedir_consulta: 'Contame qué necesitás (nombre comercial, marca o para qué lo buscás).',
+
+  // ahora sugerimos compuesto activo
   no_match:
-    'No encontré productos con esa descripción. Probá con el nombre comercial o la marca.\n' +
-    'Si querés, puedo pasarte el contacto de tu ejecutivo.',
+    'No encontré productos con esa descripción. Probá con el nombre comercial, la marca o el **compuesto activo**.',
+
+  // NUEVO: tips de refinado (para no tirar menú cada vez)
+  refinar_tip:
+    'Si querés, agregá **especie** (perro/gato), **presentación** (comprimidos/pipeta/inyección), **marca** o **compuesto activo** para afinar.',
+  refinar_follow:
+    'Podés seguir afinando: sumá marca, presentación, especie o compuesto activo. Si preferís, escribí "menú".',
 
   editar_intro: 'Podés actualizar tus datos. ¿Qué querés cambiar?',
   editar_pedir_nombre:
@@ -35,7 +42,6 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
 
   logout_confirm:
     '¿Querés cerrar sesión ahora? Vas a tener que volver a verificar tu CUIT.\n\n¿Confirmás cerrar sesión?',
-  // 👇 ahora personaliza con el nombre y no fuerza a pedir CUIT inmediatamente
   logout_ok:
     'Cerré tu sesión, {nombre}. ¡Gracias por usar KaIA! Cuando quieras seguir, decime tu CUIT para verificarte de nuevo. 👋',
 

@@ -7,7 +7,7 @@ import {
 } from '../services/whatsappService.js';
 
 import { recomendarDesdeBBDD } from '../services/recommendationService.js';
-import { responderConGPTStrict } from '../services/gptService.js';
+import { responderConGPTStrict, extraerTerminosBusqueda } from '../services/gptService.js';
 import {
   getOrCreateSession, isExpired, upsertVerified, setState, getState,
   ensureExpiry, setPending, getPending, clearPending, logout, bumpExpiry
@@ -88,7 +88,7 @@ async function sendConfirmList(from, body, yesId = 'confirm.si', noId = 'confirm
   await sendWhatsAppList(from, body, sections, header, 'Elegí');
 }
 
-/* ===== Helper de recomendación (multi-producto soportado) ===== */
+/* ===== Helper de recomendación con enriquecimiento GPT ===== */
 async function handleConsulta(from, nombre, consultaRaw) {
   const consulta = (consultaRaw || '').trim();
   if (!consulta) {
@@ -96,22 +96,28 @@ async function handleConsulta(from, nombre, consultaRaw) {
     return;
   }
 
-  const { validos = [], top, similares = [] } = await recomendarDesdeBBDD(consulta);
+  // 1) Extraer términos con GPT (must/should/negate)
+  const gpt = await extraerTerminosBusqueda(consulta);
+  console.log(`[RECO] consulta="${consulta}" gpt=${JSON.stringify(gpt)}`);
+
+  // 2) Buscar candidatos (usa gpt para LIKE/score)
+  const { validos = [], top, similares = [] } = await recomendarDesdeBBDD(consulta, { gpt });
   const productosValidos = Array.isArray(validos) && validos.length
     ? validos.slice(0, 3)
     : (top ? [top] : []);
 
-  if (!productosValidos.length && (!similares || !similares.length)) {
+  // 3) Si no hay válidos → tip de refinado (sin menú)
+  if (!productosValidos.length) {
     await sendWhatsAppText(from, t('no_match'));
-    await sendMainList(from, nombre);
+    await sendWhatsAppText(from, t('refinar_tip')); // 👈 breve, mantiene la conversación viva
     return;
   }
 
+  // 4) Formatear con GPT (guardrails) y dar tip de refinado
   let respuesta;
   try {
     respuesta = await responderConGPTStrict(consulta, { productosValidos, similares });
   } catch {
-    // Fallback local con varios productos
     const bloques = productosValidos.map(p => {
       const precio = p.precio ? ` $${Number(p.precio).toFixed(0)}` : '(consultar)';
       const promo  = p.promo?.activa ? `Sí: ${p.promo.nombre}` : 'No';
@@ -123,24 +129,16 @@ async function handleConsulta(from, nombre, consultaRaw) {
         `- ⚠️ Advertencia: Esta sugerencia no reemplaza una indicación clínica.`
       ].join('\n');
     });
-
-    if (!bloques.length && (similares || []).length) {
-      const sims = similares.slice(0, 3).map(s =>
-        `• ${s.nombre}${s.presentacion ? ` (${s.presentacion})` : ''}${s.marca ? ` – ${s.marca}` : ''}`
-      ).join('\n');
-      bloques.push(`No encontré ese producto en el catálogo de KrönenVet. ¿Podés darme nombre comercial o marca?\n${sims}\n\nDecime el nombre para ver detalles.`);
-    }
     respuesta = bloques.join('\n\n') || t('error_generico');
   }
 
   await sendWhatsAppText(from, respuesta);
-  await sendMainList(from, nombre);
+  await sendWhatsAppText(from, t('refinar_follow')); // 👈 seguimos en modo búsqueda, sin menú
 }
 
 /* ========== CONTROLLER PRINCIPAL ========== */
 export async function handleWhatsAppMessage(req, res) {
   try {
-    // Responder rápido a Meta
     res.sendStatus(200);
 
     const messages = extractIncomingMessages(req.body);
@@ -152,7 +150,7 @@ export async function handleWhatsAppMessage(req, res) {
 
       console.log(`[RX] from=${from} state=${session.state} cuit=${session.cuit || '-'} text="${(text || '').slice(0, 160)}"`);
 
-      // ===== NUEVO: gating SOLO por CUIT + expiración (no por state)
+      // ===== Gating por CUIT + expiración
       const loggedIn = !!(session.cuit && !isExpired(session));
       if (!loggedIn) {
         const digits = (text || '').replace(/\D/g, '');
@@ -173,7 +171,8 @@ export async function handleWhatsAppMessage(req, res) {
           const ttl = Number(process.env.CUIT_VERIFY_TTL_DAYS || process.env.WHATSAPP_SESSION_TTL_DAYS || 60);
           console.log(`[AUTH] login ok cuit=${digits} nombre=${nombre}`);
           await sendWhatsAppText(from, t('ok_cuit', { nombre, ttl }));
-          await sendMainList(from, nombre);
+          await setState(from, 'awaiting_consulta');           // 👈 entramos directo en modo búsqueda
+          await sendWhatsAppText(from, t('pedir_consulta'));
           continue;
         }
         console.log(`[AUTH] gating=pedir_cuit reason=${!session.cuit ? 'no_cuit' : 'expired'}`);
@@ -181,14 +180,13 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // Si está logueado, refrescamos vencimiento de sesión (fluidez)
       await bumpExpiry(from);
 
-      /* ====== Perfil ====== */
+      /* Perfil */
       const vet = await getVetByCuit(session.cuit);
       const nombre = firstName(vet?.nombre) || '';
 
-      /* ====== Estados de captura/confirmación ====== */
+      /* Estados / pending */
       const state = await getState(from);
       const pending = await getPending(from);
 
@@ -214,15 +212,15 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // --- Captura de consulta (cuando el usuario eligió "Buscar productos")
+      // --- Modo búsqueda continuo (NO volvemos a 'verified' para evitar menú)
       if (state === 'awaiting_consulta') {
-        await setState(from, 'verified'); // volvemos al estado base sin romper login
         console.log(`[FLOW] consulta="${(text||'').slice(0,80)}"`);
         await handleConsulta(from, nombre, text);
+        // nos quedamos en awaiting_consulta para que el vete pueda refinar
         continue;
       }
 
-      // --- Confirmaciones (usando lista)
+      // --- Confirmaciones
       if (state === 'confirm') {
         const raw = (text || '').toLowerCase();
         const intentC = detectarIntent(text);
@@ -231,55 +229,53 @@ export async function handleWhatsAppMessage(req, res) {
 
         if (isNo) {
           await clearPending(from);
-          await setState(from, 'verified');
+          await setState(from, 'awaiting_consulta'); // 👈 volvemos a buscar
           console.log('[CONFIRM] cancelado');
           await sendWhatsAppText(from, t('cancelado'));
-          await sendMainList(from, nombre);
+          await sendWhatsAppText(from, t('refinar_follow'));
           continue;
         }
 
         if (isYes) {
-          if (!pending) { await setState(from, 'verified'); await sendMainList(from, nombre); continue; }
+          if (!pending) { await setState(from, 'awaiting_consulta'); await sendWhatsAppText(from, t('refinar_follow')); continue; }
           const { action, value } = pending;
 
           if (action === 'edit_nombre') {
             await updateVetName(vet.id, value);
             await clearPending(from);
-            await setState(from, 'verified');
+            await setState(from, 'awaiting_consulta');
             const nombreNuevo = firstName(value) || nombre;
             console.log('[CONFIRM] edit_nombre OK');
             await sendWhatsAppText(from, t('editar_ok_nombre', { nombre: nombreNuevo }));
-            await sendMainList(from, nombreNuevo);
+            await sendWhatsAppText(from, t('refinar_follow'));
             continue;
           }
           if (action === 'edit_email') {
             await updateVetEmail(vet.id, value);
             await clearPending(from);
-            await setState(from, 'verified');
+            await setState(from, 'awaiting_consulta');
             console.log('[CONFIRM] edit_email OK');
             await sendWhatsAppText(from, t('editar_ok_email', { nombre, email: value }));
-            await sendMainList(from, nombre);
+            await sendWhatsAppText(from, t('refinar_follow'));
             continue;
           }
           if (action === 'logout') {
             await clearPending(from);
-            await logout(from); // deja la sesión limpia
+            await logout(from);
             console.log('[AUTH] logout OK');
-            // Despedimos SIN abrir menú ni pedir CUIT
             await sendWhatsAppText(from, t('logout_ok', { nombre }));
             continue;
           }
 
-          // Acción desconocida → cancelamos
           await clearPending(from);
-          await setState(from, 'verified');
+          await setState(from, 'awaiting_consulta');
           console.log('[CONFIRM] acción desconocida → cancelado');
           await sendWhatsAppText(from, t('cancelado'));
-          await sendMainList(from, nombre);
+          await sendWhatsAppText(from, t('refinar_follow'));
           continue;
         }
 
-        // Si escribe otra cosa, re-mostramos la confirmación
+        // Re-mostrar confirmación si escribe otra cosa
         if (pending?.action === 'edit_nombre') {
           await sendConfirmList(from, t('editar_confirmar_nombre', { valor: pending.value }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
         } else if (pending?.action === 'edit_email') {
@@ -288,13 +284,13 @@ export async function handleWhatsAppMessage(req, res) {
           await sendConfirmList(from, t('logout_confirm'), 'confirm.si', 'confirm.no', 'Salir');
         } else {
           await clearPending(from);
-          await setState(from, 'verified');
-          await sendMainList(from, nombre);
+          await setState(from, 'awaiting_consulta');
+          await sendWhatsAppText(from, t('refinar_follow'));
         }
         continue;
       }
 
-      /* ====== Intents / Acciones de la lista ====== */
+      /* ====== Intents / Acciones ====== */
       const intent = detectarIntent(text) || '';
 
       if (text === 'main.buscar' || intent === 'buscar') {
@@ -311,7 +307,6 @@ export async function handleWhatsAppMessage(req, res) {
         });
         if (!promos.length) {
           await sendWhatsAppText(from, 'Disculpá, en este momento no tenemos ninguna promoción activa.');
-          await sendMainList(from, nombre);
           continue;
         }
         await sendWhatsAppList(from, 'Promos vigentes:', [{
@@ -337,7 +332,6 @@ export async function handleWhatsAppMessage(req, res) {
           `Vigencia: ${p.vigencia_desde ? new Date(p.vigencia_desde).toLocaleDateString() : '—'} a ${p.vigencia_hasta ? new Date(p.vigencia_hasta).toLocaleDateString() : '—'}`
         ].filter(Boolean).join('\n');
         await sendWhatsAppText(from, body);
-        await sendMainList(from, nombre);
         continue;
       }
 
@@ -390,15 +384,13 @@ export async function handleWhatsAppMessage(req, res) {
         } else {
           await sendWhatsAppText(from, t('ejecutivo_sin_asignar'));
         }
-        await sendMainList(from, nombre);
         continue;
       }
 
-      // ====== Feedback (anti-loop: marcamos respuesta)
+      // Feedback
       if (intent === 'feedback_ok') {
         await WhatsAppSession.update({ feedbackLastResponseAt: new Date() }, { where: { phone: from } });
         await sendWhatsAppText(from, '¡Genial! Gracias por contarnos. 🙌');
-        await sendMainList(from, nombre);
         continue;
       }
       if (intent === 'feedback_meh' || intent === 'feedback_txt') {
@@ -411,32 +403,28 @@ export async function handleWhatsAppMessage(req, res) {
       if (state === 'awaiting_feedback_text') {
         const comentario = (text || '').trim().slice(0, 3000);
         if (!comentario) { await sendWhatsAppText(from, '¿Podés escribir tu comentario? 👇'); continue; }
-        try {
-          // Guardado opcional en tu modelo Feedback
-          // await Feedback.create({ flow_id: 'feedback_inactividad', satisfecho: 'meh', comentario, phone: from });
-        } catch (e) {
-          console.error('Error guardando feedback:', e);
-        }
-        await setState(from, 'verified');
+        // opcional: persistir Feedback aquí
+        await setState(from, 'awaiting_consulta');
         await WhatsAppSession.update({ feedbackLastResponseAt: new Date() }, { where: { phone: from } });
         await sendWhatsAppText(from, '¡Gracias! Registré tu comentario. 💬');
-        await sendMainList(from, nombre);
+        await sendWhatsAppText(from, t('refinar_follow'));
         continue;
       }
 
-      // ====== Saludos/ayuda/gracias → SOLO LISTA
+      // Saludos/ayuda/gracias → menú (ahora sólo cuando lo piden)
       if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent)) {
         await sendMainList(from, nombre);
         continue;
       }
 
-      // ====== Despedida (sólo texto)
+      // Despedida
       if (intent === 'despedida') {
         await sendWhatsAppText(from, t('despedida', { nombre }));
         continue;
       }
 
-      // ====== Fallback: consulta libre
+      // Fallback: seguimos en búsqueda
+      await setState(from, 'awaiting_consulta');
       await handleConsulta(from, nombre, text);
     }
   } catch (err) {
