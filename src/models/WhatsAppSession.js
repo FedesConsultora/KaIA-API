@@ -11,7 +11,6 @@ const WhatsAppSession = sequelize.define('WhatsAppSession', {
   state:       { type: DataTypes.STRING(32), allowNull: false, defaultValue: 'idle' },
   pending:     { type: DataTypes.JSON, allowNull: true },
 
-  // NUEVO:
   feedbackLastPromptAt:   { type: DataTypes.DATE, allowNull: true, field: 'feedback_last_prompt_at' },
   feedbackLastResponseAt: { type: DataTypes.DATE, allowNull: true, field: 'feedback_last_response_at' }
 }, {

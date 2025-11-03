@@ -21,7 +21,7 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   no_match:
     'No encontré productos con esa descripción. Probá con el nombre comercial, la marca o el **compuesto activo**.',
 
-  // NUEVO: tips de refinado (para no tirar menú cada vez)
+  // tips de refinado
   refinar_tip:
     'Si querés, agregá **especie** (perro/gato), **presentación** (comprimidos/pipeta/inyección), **marca** o **compuesto activo** para afinar.',
   refinar_follow:
@@ -52,6 +52,10 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
     'Te compartí el contacto de tu ejecutivo {ejecutivo}. También podés escribirle directo: wa.me/{telefono}',
   ejecutivo_sin_asignar:
     'Todavía no tenés un ejecutivo asignado. Avisanos y te contactamos a la brevedad.',
+
+  // NUEVO: disparo de escalado tras 5 intentos fallidos
+  escala_ejecutivo:
+    'Te comparto el contacto de tu ejecutivo de cuentas **{ejecutivo}** para que continúen por ahí. 👇',
 
   ayuda: 'Soy KaIA, asistente de {marca}. Puedo recomendar productos, conectarte con tu ejecutivo y actualizar tus datos.',
   despedida: '¡Gracias por escribirnos, {nombre}! Que tengas un gran día. 🙌',

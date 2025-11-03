@@ -7,6 +7,24 @@ const norm = (s) =>
 
 const LIKE_FIELDS = ['nombre', 'presentacion', 'marca', 'rubro', 'familia', 'observaciones'];
 
+// Diccionario mínimo de sinónimos/typos frecuentes
+const SYNONYMS = new Map([
+  ['biogenes', ['biogenesis', 'bago', 'biogenesis bago', 'biogenes bago', 'biogenesis bago', 'biogenesis bago', 'biogenesis bago']],
+  ['biogenes bajo', ['biogenesis bago','biogenesis bagó','biogenesis bago','biogenesis bagó','biogenesis bagó']],
+  ['biogenesis bago', ['biogenes','biogenesis bagó','biogenesis']],
+  ['brouwer', ['laboratorios brouwer']],
+  ['fatro', ['fatro von franken','von franken','fatrovonfranken']]
+]);
+
+function expandWithSynonyms(tokens = []) {
+  const out = new Set(tokens.map(norm));
+  for (const t of tokens) {
+    const k = norm(t);
+    if (SYNONYMS.has(k)) SYNONYMS.get(k).forEach(v => out.add(norm(v)));
+  }
+  return Array.from(out);
+}
+
 export function toGPTProduct(p) {
   return {
     id: p.id,
@@ -22,10 +40,6 @@ export function toGPTProduct(p) {
   };
 }
 
-/**
- * Enriquecida con señales de GPT:
- * opts.gpt = { must:[], should:[], negate:[] }
- */
 export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   const term = (termRaw || '').trim();
   const gpt = opts.gpt || { must: [], should: [], negate: [] };
@@ -34,13 +48,13 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
     return { validos: [], top: null, similares: [] };
   }
 
-  // Construcción de "candidatos" por LIKE (amplio) con tokens de must/should + palabras del texto
   const baseTokens = norm(term).split(/\s+/).filter(Boolean);
-  const tokens = Array.from(new Set([
+  const tokensRaw = Array.from(new Set([
     ...baseTokens,
-    ...gpt.must,
-    ...gpt.should
-  ])).filter(Boolean);
+    ...(gpt.must||[]),
+    ...(gpt.should||[])
+  ]));
+  const tokens = expandWithSynonyms(tokensRaw);
 
   const likeOr = [];
   for (const f of LIKE_FIELDS) for (const t of tokens) likeOr.push({ [f]: { [Op.like]: `%${t}%` } });
@@ -52,7 +66,7 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
       ...(likeOr.length ? { [Op.or]: likeOr } : { id: { [Op.gt]: 0 } })
     },
     include: [{ model: Promocion, attributes: ['nombre'], required: false }],
-    limit: 100,
+    limit: 120,
   });
 
   if (!candidatos.length) {
@@ -60,40 +74,31 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
     return { validos: [], top: null, similares: [] };
   }
 
-  // Post-filtro de relevancia REAL con pesos y exclusiones
   const neg = new Set((gpt.negate || []).map(norm));
 
   const scored = candidatos
     .map((p) => {
-      const H = norm([p.nombre, p.presentacion, p.marca, p.rubro, p.familia, p.observaciones]
-        .filter(Boolean).join(' | '));
+      const H = norm([p.nombre, p.presentacion, p.marca, p.rubro, p.familia, p.observaciones].filter(Boolean).join(' | '));
 
-      // "must": todos deben aparecer
-      for (const m of gpt.must || []) {
-        if (m && !H.includes(norm(m))) return null;
-      }
+      for (const m of (gpt.must||[])) if (m && !H.includes(norm(m))) return null;
+      for (const n of neg) if (n && H.includes(n)) return null;
 
-      // "negate": si aparece alguno, descartamos
-      for (const n of neg) {
-        if (n && H.includes(n)) return null;
-      }
-
-      // scoring
       let s = 0;
-      // Match general por tokens
       for (const t of tokens) {
         if (!t) continue;
-        const nt = norm(t);
-        if (H.includes(nt)) s += 2;
-        if (nt && norm(p.nombre).startsWith(nt)) s += 1;
+        if (H.includes(t)) s += 2.2;
+        if (p.nombre && norm(p.nombre).startsWith(t)) s += 1.3;
+        if (p.marca && norm(p.marca).includes(t)) s += 1.6;   // boost marca
       }
-      // Boost si match en observaciones (compuesto activo)
-      for (const t of [...(gpt.must||[]), ...(gpt.should||[])]) {
-        const nt = norm(t);
-        if (p.observaciones && norm(p.observaciones).includes(nt)) s += 1.5;
+      if (p.observaciones) {
+        for (const t of [...(gpt.must||[]), ...(gpt.should||[])]) {
+          const nt = norm(t);
+          if (nt && norm(p.observaciones).includes(nt)) s += 1.2;
+        }
       }
-      // Leve sesgo por disponibilidad
-      s += (Number(p.cantidad) || 0) / 1000;
+      s += (Number(p.cantidad) || 0) / 800;          // disponibilidad
+      if (p.Promocions?.length) s += 1.5;           // tener promo ayuda
+      if (p.precio) s += 0.3;                        // tener precio visible ayuda levemente
 
       return { p, s };
     })
@@ -108,7 +113,6 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
   const validos = scored.slice(0, 3).map(toGPTProduct);
   const top = validos[0] || null;
-  const similares = scored.slice(3, 6).map(toGPTProduct);
-
+  const similares = scored.slice(3, 9).map(toGPTProduct); 
   return { validos, top, similares };
 }
