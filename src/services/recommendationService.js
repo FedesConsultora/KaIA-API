@@ -62,7 +62,13 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   if (DEBUG) {
     console.log(`[RECO][INPUT] term="${term}" must=${must.length} should=${should.length} negate=${negate.length}`);
   }
+  // Si no hay nada útil, salimos
   if (!term && !must.length && !should.length) {
+    return { validos: [], top: null, similares: [] };
+  }
+  // No intentes buscar comandos del menú
+  if (/^main\./i.test(term)) {
+    if (DEBUG) console.log(`[RECO][SKIP] term="${term}" reason=main_cmd`);
     return { validos: [], top: null, similares: [] };
   }
 
@@ -87,16 +93,20 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
     [Op.and]: LIKE_FIELDS.map((f) => ({ [f]: { [Op.notLike]: `%${t}%` } }))
   }));
 
+  // 🆕 combinar correctamente todos los AND en un único [Op.and]
+  const andClauses = [];
+  if (mustClauses.length) andClauses.push(...mustClauses);
+  if (negateClauses.length) andClauses.push(...negateClauses);
+
   const where = {
     visible: true,
     debaja: false,
-    ...(mustClauses.length ? { [Op.and]: mustClauses } : {}),
-    ...(negateClauses.length ? { [Op.and]: [...(where?.[Op?.and] || []), ...negateClauses] } : {}),
     ...(likeOr.length ? { [Op.or]: likeOr } : {}),
+    ...(andClauses.length ? { [Op.and]: andClauses } : {}),
   };
 
   if (DEBUG) {
-    console.log(`[RECO][SQL] likeOr=${likeOr.length} mustAND=${mustClauses.length} negateAND=${negateClauses.length}`);
+    console.log(`[RECO][SQL] likeOr=${likeOr.length} andClauses=${andClauses.length} (must=${mustClauses.length}, negate=${negateClauses.length})`);
   }
 
   const candidatos = await Producto.findAll({
@@ -141,14 +151,13 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
       return { p, s, hits, H };
     })
-    // Si hay MUST, exigimos que haya al menos una coincidencia con MUST
+    // Si hay MUST, exigimos que exista al menos una coincidencia con MUST
     .filter(x => must.length ? must.some(t => t && x.H.includes(t)) : x.hits > 0)
     .sort((a, b) => b.s - a.s);
 
   if (DEBUG) {
     const topName = scored[0]?.p?.nombre || '—';
     console.log(`[RECO][POST] relevant=${scored.length} top="${topName}"`);
-    // Muestra breve de causas
     for (const row of scored.slice(0, 3)) {
       const matched = tokensForHit.filter(t => row.H.includes(t));
       if (matched.length) console.log(`  • "${row.p.nombre}" ↦ +${row.s.toFixed(2)} hit=[${matched.join(', ')}]`);

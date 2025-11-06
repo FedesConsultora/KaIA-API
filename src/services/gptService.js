@@ -64,8 +64,12 @@ export async function responderConGPTStrict(mensajeVet, { productosValidos = [],
   }
 }
 
-/** ---------- NUEVO: extractor de términos para enriquecer la búsqueda ---------- */
-const STOP = new Set(['de','para','por','con','sin','y','o','la','el','los','las','un','una','unos','unas','que','del','al','en','a','se']);
+/** ---------- EXTRACTOR ---------- */
+// 🆕 ampliamos STOP para ignorar saludos/comandos triviales
+const STOP = new Set([
+  'de','para','por','con','sin','y','o','la','el','los','las','un','una','unos','unas','que','del','al','en','a','se',
+  'hola','holaa','holis','buenas','buenos','hey','hi','menu','buscar'
+]);
 
 const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
 
@@ -98,8 +102,8 @@ export async function extraerTerminosBusqueda(query) {
     raw = raw.trim().replace(/^\s*```json\s*|\s*```\s*$/g, '');
     const parsed = JSON.parse(raw);
     const must   = Array.isArray(parsed.must)   ? parsed.must.map(norm)   : [];
-    const should = Array.isArray(parsed.should) ? parsed.should.map(norm) : [];
-    const negate = Array.isArray(parsed.negate) ? parsed.negate.map(norm) : [];
+    const should = Array.isArray(parsed.should) ? parsed.should.map(norm).filter(w => !STOP.has(w)) : [];
+    const negate = Array.isArray(parsed.negate) ? parsed.negate.map(norm).filter(w => !STOP.has(w)) : [];
     return { must, should, negate };
   } catch (e) {
     console.error('⚠️ extraerTerminosBusqueda fallback:', e?.message);

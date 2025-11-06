@@ -29,6 +29,7 @@ const RX = {
 };
 
 const BUTTON_IDS = new Map([
+  // Botones cortos
   ['buscar', 'buscar'],
   ['humano', 'humano'],
   ['editar', 'editar'],
@@ -45,7 +46,13 @@ const BUTTON_IDS = new Map([
   ['gato',  'species_gato'],
   ['fb_ok',  'feedback_ok'],
   ['fb_meh', 'feedback_meh'],
-  ['fb_txt', 'feedback_txt']
+  ['fb_txt', 'feedback_txt'],
+
+  // 🆕 Items de lista "main.*" mapeados a intents
+  ['main.buscar', 'buscar'],
+  ['main.promos', 'promos'],
+  ['main.editar', 'editar'],
+  ['main.logout', 'logout'],
 ]);
 
 export function detectarIntent(texto = '') {

@@ -1,4 +1,5 @@
 // src/controllers/webhookController.js
+// ----------------------------------------------------
 import 'dotenv/config';
 import {
   sendWhatsAppText,
@@ -94,14 +95,16 @@ async function sendConfirmList(from, body, yesId = 'confirm.si', noId = 'confirm
 /* ===== Helper: saludo corto ===== */
 function isLikelyGreeting(s = '') {
   const x = (s || '').trim().toLowerCase();
-  // “hola”, “holaa”, “holis”, “buenas”
-  return /^ho+la+s?$/.test(x) || /^holi+s?$/.test(x) || /^buen[oa]s?$/.test(x);
+  return /^ho+la+s?$/.test(x) || /^holi+s?$/.test(x) || /^buen[oa]s?$/.test(x) || /^hey$/.test(x) || /^hi$/.test(x);
 }
 
 /* ===== Recomendación con contexto + desambiguación ===== */
 async function handleConsulta(from, nombre, consultaRaw) {
   const consulta = (consultaRaw || '').trim();
-  if (!consulta) {
+
+  // 🛑 Guard: si vino un saludo / comando de menú / "buscar", no buscamos: pedimos descripción.
+  if (!consulta || isLikelyGreeting(consulta) || /^main\./i.test(consulta) || /^buscar$/i.test(consulta)) {
+    console.log(`[RECO][SKIP] query="${consulta}" reason=${!consulta ? 'empty' : isLikelyGreeting(consulta) ? 'greeting' : /^main\./i.test(consulta) ? 'main_cmd' : 'buscar_cmd'}`);
     await sendWhatsAppText(from, t('pedir_consulta'));
     return;
   }
@@ -306,9 +309,15 @@ export async function handleWhatsAppMessage(req, res) {
         const intent = detectarIntent(text) || '';
         if (DEBUG) console.log(`[FLOW] awaiting_consulta intent=${intent}`);
 
-        // Interceptores para NO pasar al buscador con frases sociales
+        // 🛑 Interceptores: NO pasar al buscador con frases sociales / comandos
         if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent) || isLikelyGreeting(text)) {
+          console.log('[GUARD] greeting/menu/ayuda → mostrar menú');
           await sendMainList(from, nombre);
+          continue;
+        }
+        if (intent === 'buscar') {
+          console.log('[GUARD] main.buscar/buscar → pedir consulta');
+          await sendWhatsAppText(from, t('pedir_consulta'));
           continue;
         }
         if (intent === 'promos') {
@@ -489,13 +498,13 @@ export async function handleWhatsAppMessage(req, res) {
       /* ====== Intents / Acciones fuera de awaiting_consulta ====== */
       const intent = detectarIntent(text) || '';
 
-      if (text === 'main.buscar' || intent === 'buscar') {
+      if (intent === 'buscar') {
         await setState(from, 'awaiting_consulta');
         await sendWhatsAppText(from, t('pedir_consulta'));
         continue;
       }
 
-      if (text === 'main.promos' || intent === 'promos' || /promo/i.test(text || '')) {
+      if (intent === 'promos' || /promo/i.test(text || '')) {
         const promos = await Promocion.findAll({
           where: { vigente: true },
           order: [['vigencia_hasta','ASC'], ['nombre','ASC']],
@@ -531,7 +540,7 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      if (text === 'main.editar' || intent === 'editar') {
+      if (intent === 'editar') {
         await sendWhatsAppList(from, t('editar_intro'), [{
           title: 'Mis datos',
           rows: [
@@ -542,19 +551,19 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      if (text === 'edit.nombre' || intent === 'editar_nombre') {
+      if (intent === 'editar_nombre') {
         await setState(from, 'awaiting_nombre_value');
         await sendWhatsAppText(from, t('editar_pedir_nombre'));
         continue;
       }
 
-      if (text === 'edit.email' || intent === 'editar_email') {
+      if (intent === 'editar_email') {
         await setState(from, 'awaiting_email_value');
         await sendWhatsAppText(from, t('editar_pedir_email'));
         continue;
       }
 
-      if (text === 'main.logout' || intent === 'logout') {
+      if (intent === 'logout') {
         await setPending(from, { action: 'logout', prev: { state } });
         await setState(from, 'confirm');
         await sendConfirmList(from, t('logout_confirm'), 'confirm.si', 'confirm.no', 'Salir');
@@ -612,7 +621,7 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // Fallback: seguimos en búsqueda
+      // Fallback: seguimos en búsqueda (pero con guards en handleConsulta)
       await setState(from, 'awaiting_consulta');
       await handleConsulta(from, nombre, text);
     }
