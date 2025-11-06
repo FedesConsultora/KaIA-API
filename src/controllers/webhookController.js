@@ -25,10 +25,15 @@ import {
 import { WhatsAppSession, Promocion } from '../models/index.js';
 import { t } from '../config/texts.js';
 
+// 🆕 Lista/Detalle de productos
+import { sendProductsList, openProductDetail } from '../services/disambiguationService.js';
+
 const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || 'dev-token';
 const MAX_FAILS = Number(process.env.SEARCH_MAX_FAILS || 5);
 const DEBUG = process.env.DEBUG_RECO === '1';
 
+// 🆕 Tel. Administrativo (wa.me requiere solo dígitos)
+const ADMIN_PHONE_DIGITS = '5492216374218';
 /* ========== VERIFY (hub.challenge) ========== */
 export function handleWhatsAppVerify(req, res) {
   const mode = req.query['hub.mode'];
@@ -103,18 +108,16 @@ async function resetRecoContext(phone) {
   });
 }
 
-/* ===== Recomendación con contexto + desambiguación ===== */
+/* ===== Recomendación con contexto (lista primero) ===== */
 async function handleConsulta(from, nombre, consultaRaw) {
   const consulta = sanitizeText(consultaRaw || '');
 
-  // 🛑 Guard: saludo / menú / "buscar" → NO buscar
   if (!consulta || isLikelyGreeting(consulta) || /^main\./i.test(consulta) || /^buscar$/i.test(consulta) || /^menu$/i.test(consulta)) {
-    console.log(`[RECO][SKIP] query="${consulta}" reason=${!consulta ? 'empty' : isLikelyGreeting(consulta) ? 'greeting' : /^main\./i.test(consulta) ? 'main_cmd' : /^menu$/i.test(consulta) ? 'menu_cmd' : 'buscar_cmd'}`);
+    console.log(`[RECO][SKIP] query="${consulta}"`);
     await sendWhatsAppText(from, t('pedir_consulta'));
     return;
   }
 
-  // 1) Extraer señales + merge con contexto previo
   const prev = await getReco(from);
   const gptNew = await extraerTerminosBusqueda(consulta);
   const mergedTokens = {
@@ -129,10 +132,8 @@ async function handleConsulta(from, nombre, consultaRaw) {
     console.log(`[RECO] consulta="${consulta}" gpt=${JSON.stringify(mergedTokens)}`);
   }
 
-  // 2) Buscar con GPT tokens
   const { validos = [], similares = [] } = await recomendarDesdeBBDD(consulta, { gpt: mergedTokens });
 
-  // 3) Sin resultados → pedir refinadores y escalar por fails
   if (!validos.length) {
     const after = await incRecoFail(from);
     if (DEBUG) console.log(`[RECO][NO_MATCH] failCount=${after?.failCount}`);
@@ -178,7 +179,7 @@ async function handleConsulta(from, nombre, consultaRaw) {
     return;
   }
 
-  // 4) Con resultados
+  // Con resultados → guardar contexto
   await resetRecoFail(from);
   await setReco(from, {
     tokens: mergedTokens,
@@ -187,31 +188,8 @@ async function handleConsulta(from, nombre, consultaRaw) {
     lastSimilares: similares.map(s => s.id)
   });
 
-  let respuesta;
-  try {
-    respuesta = await responderConGPTStrict(consulta, { productosValidos: validos, similares });
-  } catch {
-    const bloques = validos.map(p => {
-      const precio = p.precio ? ` $${Number(p.precio).toFixed(0)}` : '(consultar)';
-      const promo  = p.promo?.activa ? `Sí: ${p.promo.nombre}` : 'No';
-      return [
-        `- Producto sugerido: ${p.nombre}`,
-        `- Marca / Presentación: ${p.marca || '—'}${p.presentacion ? ` / ${p.presentacion}` : ''}`,
-        `- ¿Tiene promoción?: ${promo}`,
-        `- Precio estimado (si aplica): ${precio}`,
-        `- ⚠️ Advertencia: Esta sugerencia no reemplaza una indicación clínica.`
-      ].join('\n');
-    });
-    respuesta = bloques.join('\n\n') || t('error_generico');
-  }
-
-  await sendWhatsAppText(from, respuesta);
-
-  // 👇 Sin "Ver más opciones"
-  await sendWhatsAppButtons(from, t('cta_como_seguimos'), [
-    { id: 'humano',  title: t('btn_humano') },
-    { id: 'menu',    title: t('btn_menu') }
-  ]);
+  // 🆕 Cambio: mostrar PRIMERO la lista (aunque haya 1) y no enviar bloque GPT acá.
+  await sendProductsList(from, validos, t('productos_select_header'));
 }
 
 /* ========== CONTROLLER PRINCIPAL ========== */
@@ -225,11 +203,8 @@ export async function handleWhatsAppMessage(req, res) {
     for (const { from, text } of messages) {
       const session = await getOrCreateSession(from);
       await ensureExpiry(session);
-
-      // Marcar último mensaje de usuario apenas llega (métrica robusta de idle)
       await bumpLastInteraction(from);
 
-      // Feedback ping si regresa tras inactividad
       if (shouldPromptFeedback(session)) {
         await sendWhatsAppButtons(from, t('fb_ping'), [
           { id: 'fb_ok',  title: '👍 Sí' },
@@ -272,7 +247,7 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // 🕒 Inactividad: volver a menú (no desloguea)
+      // 🕒 Inactividad: volver a menú
       if (shouldResetToMenu(session)) {
         await resetToMenu(from);
         const vet = await getVetByCuit(session.cuit);
@@ -286,6 +261,44 @@ export async function handleWhatsAppMessage(req, res) {
 
       const vet = await getVetByCuit(session.cuit);
       const nombre = firstName(vet?.nombre) || '';
+
+      // 🆕 Apertura de ficha por selección "prod:<id>" (en cualquier estado)
+      if ((normText || '').startsWith('prod:')) {
+        const pid = Number(String(normText).split(':')[1]);
+        const ok = await openProductDetail(from, pid);
+        if (ok) {
+          const ej = vet?.EjecutivoCuenta;
+          if (ej && (ej.phone || ej.email)) {
+            await sendWhatsAppContacts(from, [{
+              formatted_name: ej.nombre,
+              first_name: ej.nombre?.split(' ')[0],
+              last_name: ej.nombre?.split(' ').slice(1).join(' ') || undefined,
+              org: 'KrönenVet',
+              phones: ej.phone ? [{ phone: ej.phone, type: 'WORK' }] : [],
+              emails: ej.email ? [{ email: ej.email, type: 'WORK' }] : []
+            }]);
+            await sendWhatsAppText(from, t('handoff_ejecutivo', { ejecutivo: ej.nombre, telefono: ej.phone || '' }));
+          } else {
+            // Deriva a Administración
+            await sendWhatsAppContacts(from, [{
+              formatted_name: 'Administración KronenVet',
+              first_name: 'Administración',
+              last_name: 'KronenVet',
+              org: 'KrönenVet',
+              phones: [{ phone: ADMIN_PHONE_DIGITS, type: 'WORK' }]
+            }]);
+            await sendWhatsAppText(from, t('handoff_admin', { telefono: ADMIN_PHONE_DIGITS }));
+          }
+
+          await sendWhatsAppButtons(from, t('cta_como_seguimos'), [
+            { id: 'humano',  title: t('btn_humano') },
+            { id: 'menu',    title: t('btn_menu') }
+          ]);
+        } else {
+          await sendWhatsAppText(from, t('producto_open_error'));
+        }
+        continue;
+      }
 
       const state = await getState(from);
       const pending = await getPending(from);
@@ -317,7 +330,6 @@ export async function handleWhatsAppMessage(req, res) {
         const intent = detectarIntent(normText) || '';
         if (DEBUG) console.log(`[FLOW] awaiting_consulta intent=${intent}`);
 
-        // 🛑 Interceptores: NO pasar al buscador con frases sociales / comandos
         if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent) || isLikelyGreeting(normText)) {
           console.log('[GUARD] greeting/menu/ayuda → mostrar menú');
           await resetRecoContext(from);
@@ -362,7 +374,14 @@ export async function handleWhatsAppMessage(req, res) {
             }]);
             await sendWhatsAppText(from, t('ejecutivo_contacto_enviado', { ejecutivo: ej.nombre, telefono: ej.phone || '' }));
           } else {
-            await sendWhatsAppText(from, t('ejecutivo_sin_asignar'));
+            await sendWhatsAppContacts(from, [{
+              formatted_name: 'Administración KronenVet',
+              first_name: 'Administración',
+              last_name: 'KronenVet',
+              org: 'KrönenVet',
+              phones: [{ phone: ADMIN_PHONE_DIGITS, type: 'WORK' }]
+            }]);
+            await sendWhatsAppText(from, t('handoff_admin', { telefono: ADMIN_PHONE_DIGITS }));
           }
           continue;
         }
@@ -373,7 +392,6 @@ export async function handleWhatsAppMessage(req, res) {
           continue;
         }
 
-        // especie via botones
         if (intent === 'species_perro' || intent === 'species_gato') {
           const especie = intent === 'species_perro' ? 'perro' : 'gato';
           await setReco(from, { tokens: { should: [especie] } });
@@ -385,8 +403,6 @@ export async function handleWhatsAppMessage(req, res) {
           }
           continue;
         }
-
-        // 🚫 Eliminado 'ver_mas'
 
         if (intent === 'volver') {
           await resetRecoContext(from);
@@ -580,12 +596,18 @@ export async function handleWhatsAppMessage(req, res) {
           }]);
           await sendWhatsAppText(from, t('ejecutivo_contacto_enviado', { ejecutivo: ej.nombre, telefono: ej.phone || '' }));
         } else {
-          await sendWhatsAppText(from, t('ejecutivo_sin_asignar'));
+          await sendWhatsAppContacts(from, [{
+            formatted_name: 'Administración KronenVet',
+            first_name: 'Administración',
+            last_name: 'KronenVet',
+            org: 'KrönenVet',
+            phones: [{ phone: ADMIN_PHONE_DIGITS, type: 'WORK' }]
+          }]);
+          await sendWhatsAppText(from, t('handoff_admin', { telefono: ADMIN_PHONE_DIGITS }));
         }
         continue;
       }
 
-      // Feedback
       if (intent === 'feedback_ok') {
         await WhatsAppSession.update({ feedbackLastResponseAt: new Date() }, { where: { phone: from } });
         await sendWhatsAppText(from, t('fb_ok_resp'));
@@ -619,7 +641,7 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // Fallback: seguimos en búsqueda (pero con guards en handleConsulta)
+      // Fallback: seguimos en búsqueda
       await setState(from, 'awaiting_consulta');
       await handleConsulta(from, nombre, normText);
     }

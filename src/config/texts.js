@@ -23,13 +23,30 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   refinar_follow:
     'Podés seguir afinando: sumá marca, presentación, especie o compuesto activo. Si preferís, escribí "menú".',
 
-  // Desambiguación y flujo multistep
-  reco_pedir_especie: '¿Para qué especie es?',
-  reco_no_mas_similares:
-    'No tengo más opciones similares por ahora. Probá afinando por especie, marca o presentación.',
-  reco_similares_intro: 'Algunas alternativas similares:',
+  // ====== Desambiguación ======
+  desambig_species_header: 'Elegí especie',
+  desambig_species_body: '¿Para qué especie lo estás buscando?',
+  desambig_peso_header: 'Elegí franja de peso',
+  desambig_peso_body_gato: '¿Cuánto pesa el gato? Elegí una franja:',
+  desambig_peso_body_perro: '¿Cuánto pesa el perro? Elegí una franja:',
+  desambig_form_header: 'Elegí presentación',
+  desambig_form_body: '¿Preferís pipeta, comprimido o inyectable?',
+  desambig_pack_header: 'Elegí pack',
+  desambig_pack_body: '¿Qué cantidad preferís?',
+  desambig_brand_header: 'Elegí marca',
+  desambig_brand_body: '¿Tenés preferencia de marca?',
+  desambig_active_header: 'Elegí compuesto activo',
+  desambig_active_body: '¿Qué compuesto preferís?',
 
-  // CTA post-respuesta (SIN "ver más")
+  // ====== Listado / ficha ======
+  productos_list_title: 'Sugerencias',
+  productos_list_header: 'KaIA – Productos',
+  productos_list_body: 'Elegí un producto para ver la ficha completa:',
+  productos_select_header: 'Sugerencias según tu consulta',
+  producto_open_error: 'No pude abrir ese producto.',
+  producto_ficha_header: '🧾 Ficha del producto',
+
+  // CTA post-respuesta
   cta_como_seguimos: '¿Cómo seguimos?',
 
   /* ====== Menú principal ====== */
@@ -62,7 +79,6 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   editar_confirmar_nombre:
     'Vas a cambiar tu nombre a:\n“{valor}”\n\n¿Confirmás el cambio?',
   editar_ok_nombre: '¡Hecho, {nombre}! Actualicé tu nombre. ✍️',
-
   editar_pedir_email: 'Decime tu email (ej: ejemplo@dominio.com).',
   editar_confirmar_email:
     'Vas a cambiar tu email a:\n“{valor}”\n\n¿Confirmás el cambio?',
@@ -82,11 +98,16 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   /* ====== Ejecutivo ====== */
   ejecutivo_contacto_enviado:
     'Te compartí el contacto de tu ejecutivo {ejecutivo}. También podés escribirle directo: wa.me/{telefono}',
-  // 👇 Cambio solicitado
   ejecutivo_sin_asignar:
     'Todavía no tenés un ejecutivo asignado. **Nos vamos a comunicar a la brevedad.**',
   escala_ejecutivo:
     'Te comparto el contacto de tu ejecutivo de cuentas **{ejecutivo}** para que continúen por ahí. 👇',
+
+  // 🆕 Derivaciones post-ficha
+  handoff_ejecutivo:
+    'Si querés cerrarlo ya, escribile a tu ejecutivo **{ejecutivo}**: wa.me/{telefono}',
+  handoff_admin:
+    'Por ahora no tenés un ejecutivo asignado. Te paso el contacto de **Administración** (wa.me/{telefono}) para que te asignen uno y sigamos tu pedido.',
 
   /* ====== Feedback post-inactividad ====== */
   fb_ping: '¿Te fue útil esta ayuda?',
@@ -105,7 +126,6 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   btn_confirmar: '✅ Confirmar',
   btn_cancelar: '↩️ Cancelar',
   btn_volver: '↩️ Volver',
-  // 🚫 Eliminado btn_ver_mas
   btn_humano: 'Hablar con asesor',
   btn_menu: 'Volver al menú',
   btn_perro: '🐶 Perro',
