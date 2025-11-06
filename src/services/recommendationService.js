@@ -1,28 +1,33 @@
 // src/services/recommendationService.js
-// ----------------------------------------------------
 import { Op } from 'sequelize';
 import { Producto, Promocion } from '../models/index.js';
+
+const DEBUG = process.env.DEBUG_RECO === '1';
 
 const norm = (s) =>
   (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
 
+const SYN = {
+  pipetas: ['pipeta', 'pipetas', 'spot on', 'spot-on', 'antiparasitario', 'antiparasitarios'],
+  gatos: ['gato', 'gatos', 'felino', 'felinos'],
+  perros: ['perro', 'perros', 'canino', 'caninos'],
+  condroprotectores: [
+    'condroprotector', 'condroprotectores',
+    'glucosamina', 'sulfato de condroitina', 'condroitina',
+    'hialuronato', 'ácido hialurónico', 'hialuronico', 'msm',
+    'perna canaliculus', 'cartilago', 'cartílago'
+  ],
+};
+
 const LIKE_FIELDS = ['nombre', 'presentacion', 'marca', 'rubro', 'familia', 'observaciones'];
 
-// Sinónimos / typos frecuentes (extendible)
-const SYNONYMS = new Map([
-  ['biogenes', ['biogenesis', 'bagó', 'bago', 'biogenesis bago', 'biogenesis bagó']],
-  ['biogenesis bago', ['biogenes', 'bago', 'bagó']],
-  ['brouwer', ['laboratorios brouwer']],
-  ['fatro', ['fatro von franken', 'von franken', 'fatrovonfranken']],
-  ['pipetas', ['pipeta', 'spot on', 'tópico', 'topico']],
-  ['antiparasitario', ['antiparasitarias', 'pulgas', 'garrapatas']]
-]);
-
-function expandWithSynonyms(tokens = []) {
-  const out = new Set(tokens.map(norm));
-  for (const t of tokens) {
-    const k = norm(t);
-    if (SYNONYMS.has(k)) SYNONYMS.get(k).forEach(v => out.add(norm(v)));
+function expandTerms(raw) {
+  const toks = norm(raw).split(/\s+/).filter(Boolean);
+  const out = new Set(toks);
+  for (const t of toks) {
+    for (const [k, arr] of Object.entries(SYN)) {
+      if (k === t || arr.includes(t)) arr.forEach((x) => out.add(x));
+    }
   }
   return Array.from(out);
 }
@@ -42,96 +47,122 @@ export function toGPTProduct(p) {
   };
 }
 
-/** Buscar por término + señales gpt { must, should, negate } */
+/**
+ * Recomienda desde BBDD con apoyo opcional de tokens GPT.
+ * @param {string} termRaw
+ * @param {{ gpt?: { must?: string[], should?: string[], negate?: string[] } }} opts
+ */
 export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   const term = (termRaw || '').trim();
-  const gpt = opts.gpt || { must: [], should: [], negate: [] };
+  const gpt = opts?.gpt || {};
+  const must = Array.from(new Set((gpt.must || []).map(norm))).filter(Boolean);
+  const should = Array.from(new Set((gpt.should || []).map(norm))).filter(Boolean);
+  const negate = Array.from(new Set((gpt.negate || []).map(norm))).filter(Boolean);
 
-  if (!term && (!gpt.must.length && !gpt.should.length)) {
+  if (DEBUG) {
+    console.log(`[RECO][INPUT] term="${term}" must=${must.length} should=${should.length} negate=${negate.length}`);
+  }
+  if (!term && !must.length && !should.length) {
     return { validos: [], top: null, similares: [] };
   }
 
-  const baseTokens = norm(term).split(/\s+/).filter(Boolean);
-  const tokensRaw = Array.from(new Set([
-    ...baseTokens,
-    ...(gpt.must || []),
-    ...(gpt.should || [])
-  ]));
-  const tokens = expandWithSynonyms(tokensRaw);
+  // Tokens base por query libre (sinónimos)
+  const expanded = expandTerms(term);
 
+  // --- WHERE dinámico ---
+  // shouldLike: OR de LIKE por (expanded + should)
+  const shouldTokens = Array.from(new Set([...expanded, ...should])).filter(Boolean);
   const likeOr = [];
-  for (const f of LIKE_FIELDS) for (const t of tokens) likeOr.push({ [f]: { [Op.like]: `%${t}%` } });
+  for (const f of LIKE_FIELDS) {
+    for (const t of shouldTokens) likeOr.push({ [f]: { [Op.like]: `%${t}%` } });
+  }
+
+  // mustClauses: AND de (OR campos LIKE %token%)
+  const mustClauses = must.map((t) => ({
+    [Op.or]: LIKE_FIELDS.map((f) => ({ [f]: { [Op.like]: `%${t}%` } }))
+  }));
+
+  // negateClauses: AND de (todos los campos NOT LIKE %token%)
+  const negateClauses = negate.map((t) => ({
+    [Op.and]: LIKE_FIELDS.map((f) => ({ [f]: { [Op.notLike]: `%${t}%` } }))
+  }));
+
+  const where = {
+    visible: true,
+    debaja: false,
+    ...(mustClauses.length ? { [Op.and]: mustClauses } : {}),
+    ...(negateClauses.length ? { [Op.and]: [...(where?.[Op?.and] || []), ...negateClauses] } : {}),
+    ...(likeOr.length ? { [Op.or]: likeOr } : {}),
+  };
+
+  if (DEBUG) {
+    console.log(`[RECO][SQL] likeOr=${likeOr.length} mustAND=${mustClauses.length} negateAND=${negateClauses.length}`);
+  }
 
   const candidatos = await Producto.findAll({
-    where: {
-      visible: true,
-      debaja: false,
-      ...(likeOr.length ? { [Op.or]: likeOr } : { id: { [Op.gt]: 0 } })
-    },
+    where,
     include: [{ model: Promocion, attributes: ['nombre'], required: false }],
-    limit: 120,
+    limit: 80,
   });
 
+  if (DEBUG) console.log(`[RECO][CAND] count=${candidatos.length}`);
+
   if (!candidatos.length) {
-    console.log(`[RECO] no-db-matches term="${term}" gpt=${JSON.stringify(gpt)}`);
     return { validos: [], top: null, similares: [] };
   }
 
-  const neg = new Set((gpt.negate || []).map(norm));
+  // --- POST-FILTRO + SCORE ---
+  const tokensForHit = Array.from(new Set([...shouldTokens, ...must])).filter(Boolean);
 
   const scored = candidatos
     .map((p) => {
-      const H = norm([p.nombre, p.presentacion, p.marca, p.rubro, p.familia, p.observaciones]
-        .filter(Boolean).join(' | '));
+      const H = norm([
+        p.nombre, p.presentacion, p.marca, p.rubro, p.familia, p.observaciones
+      ].filter(Boolean).join(' | '));
 
-      // must
-      for (const m of (gpt.must || [])) if (m && !H.includes(norm(m))) return null;
-      // negate
-      for (const n of neg) if (n && H.includes(n)) return null;
-
-      // scoring
       let s = 0;
-      for (const t of tokens) {
-        if (!t) continue;
-        if (H.includes(t)) s += 2.2;
-        if (p.nombre && norm(p.nombre).startsWith(t)) s += 1.3;
-        if (p.marca && norm(p.marca).includes(t)) s += 1.6;   // boost marca
-      }
-      if (p.observaciones) {
-        for (const t of [...(gpt.must || []), ...(gpt.should || [])]) {
-          const nt = norm(t);
-          if (nt && norm(p.observaciones).includes(nt)) s += 1.2;
-        }
-      }
-      s += (Number(p.cantidad) || 0) / 800;          // disponibilidad
-      if (p.Promocions?.length) s += 1.5;           // tener promo ayuda
-      if (p.precio) s += 0.3;                        // precio visible
+      let hits = 0;
 
-      return { p, s };
+      // MUST pesa fuerte (si vino por GPT)
+      for (const t of must) {
+        if (t && H.includes(t)) { s += 6; hits++; }
+      }
+      // SHOULD (incluye expanded query base)
+      for (const t of shouldTokens) {
+        if (t && H.includes(t)) { s += 2; hits++; }
+        if (t && norm(p.nombre).startsWith(t)) s += 1;
+      }
+      // Penaliza si aparece algo negado
+      for (const n of negate) {
+        if (n && H.includes(n)) s -= 5;
+      }
+      // Disponibilidad leve
+      s += (Number(p.cantidad) || 0) / 1000;
+
+      return { p, s, hits, H };
     })
-    .filter(Boolean)
-    .sort((a, b) => b.s - a.s)
-    .map(x => x.p);
+    // Si hay MUST, exigimos que haya al menos una coincidencia con MUST
+    .filter(x => must.length ? must.some(t => t && x.H.includes(t)) : x.hits > 0)
+    .sort((a, b) => b.s - a.s);
+
+  if (DEBUG) {
+    const topName = scored[0]?.p?.nombre || '—';
+    console.log(`[RECO][POST] relevant=${scored.length} top="${topName}"`);
+    // Muestra breve de causas
+    for (const row of scored.slice(0, 3)) {
+      const matched = tokensForHit.filter(t => row.H.includes(t));
+      if (matched.length) console.log(`  • "${row.p.nombre}" ↦ +${row.s.toFixed(2)} hit=[${matched.join(', ')}]`);
+    }
+  }
 
   if (!scored.length) {
-    console.log(`[RECO] no-relevant-hits term="${term}" gpt=${JSON.stringify(gpt)}`);
     return { validos: [], top: null, similares: [] };
   }
 
-  const validos = scored.slice(0, 3).map(toGPTProduct);
+  const ordered = scored.map(x => x.p);
+  const validos = ordered.slice(0, 3).map(toGPTProduct);
   const top = validos[0] || null;
-  const similares = scored.slice(3, 9).map(toGPTProduct); // más similares por si piden "ver más"
+  const similares = ordered.slice(3, 9).map(toGPTProduct);
 
   return { validos, top, similares };
-}
-
-/** Helper para listar similares por IDs (para el botón "ver más") */
-export async function fetchProductsByIds(ids = []) {
-  if (!ids?.length) return [];
-  const rows = await Producto.findAll({
-    where: { id: { [Op.in]: ids } },
-    include: [{ model: Promocion, attributes: ['nombre'], required: false }],
-    order: [['nombre', 'ASC']]
-  });
-  return rows.map(toGPTProduct);
 }

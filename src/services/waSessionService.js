@@ -1,5 +1,4 @@
 // src/services/waSessionService.js
-// ----------------------------------------------------
 import { WhatsAppSession } from '../models/index.js';
 
 const TTL_DAYS = Number(
@@ -8,9 +7,9 @@ const TTL_DAYS = Number(
   60
 );
 
-// ⏱️ inactividad para volver al menú (12h)
+// ⏱️ inactividad para volver al menú (12h por defecto)
 const MENU_IDLE_MS = Number(process.env.MENU_IDLE_MS || (12 * 60 * 60 * 1000));
-// ⏱️ inactividad para ping de feedback (15m)
+// ⏱️ inactividad para ping de feedback (15m por defecto)
 const FEEDBACK_IDLE_MS = Number(process.env.FEEDBACK_IDLE_MS || (15 * 60 * 1000));
 
 export async function getOrCreateSession(phone) {
@@ -93,31 +92,38 @@ export async function logout(phone) {
   );
 }
 
-/* ===== Inactividad → menú ===== */
-export function shouldResetToMenu(session) {
-  const last = new Date(session?.updatedAt || session?.createdAt || Date.now());
-  return (Date.now() - last.getTime()) > MENU_IDLE_MS;
+/** Marca el último mensaje real del usuario (sin migraciones: lo guardamos en pending.reco) */
+export async function bumpLastInteraction(phone) {
+  const s = await WhatsAppSession.findOne({ where: { phone } });
+  const cur = s?.pending || {};
+  const reco = { ...(cur.reco || {}), lastInteractionAt: new Date().toISOString() };
+  await WhatsAppSession.update({ pending: { ...cur, reco } }, { where: { phone } });
 }
 
-export async function resetToMenu(phone) {
-  await WhatsAppSession.update(
-    { state: 'menu_idle', pending: null },
-    { where: { phone } }
-  );
+function getLastInteractionFromSession(session) {
+  return session?.pending?.reco?.lastInteractionAt || null;
+}
+
+/* ===== Inactividad → menú ===== */
+export function shouldResetToMenu(session) {
+  const lastIso = getLastInteractionFromSession(session);
+  const base = lastIso ? new Date(lastIso) : new Date(session?.updatedAt || session?.createdAt || Date.now());
+  return (Date.now() - base.getTime()) > MENU_IDLE_MS;
 }
 
 /* ===== Feedback tras inactividad ===== */
 export function shouldPromptFeedback(session) {
   if (session?.feedbackLastPromptAt) return false;
-  const last = new Date(session?.updatedAt || session?.createdAt || Date.now());
-  return (Date.now() - last.getTime()) > FEEDBACK_IDLE_MS;
+  const lastIso = getLastInteractionFromSession(session);
+  const base = lastIso ? new Date(lastIso) : new Date(session?.updatedAt || session?.createdAt || Date.now());
+  return (Date.now() - base.getTime()) > FEEDBACK_IDLE_MS;
 }
 
 export async function markFeedbackPrompted(phone) {
   await WhatsAppSession.update({ feedbackLastPromptAt: new Date() }, { where: { phone } });
 }
 
-/* ===== Contexto de recomendación (sin migraciones) ===== */
+/* ===== Contexto de recomendación ===== */
 export async function getReco(phone) {
   const p = await getPending(phone);
   const def = {
@@ -125,7 +131,8 @@ export async function getReco(phone) {
     tokens: { must: [], should: [], negate: [] },
     lastQuery: '',
     lastSimilares: [],
-    lastShownIds: []
+    lastShownIds: [],
+    lastInteractionAt: null
   };
   return (p && p.reco) ? { ...def, ...p.reco } : def;
 }

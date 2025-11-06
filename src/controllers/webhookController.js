@@ -1,5 +1,4 @@
 // src/controllers/webhookController.js
-// ----------------------------------------------------
 import 'dotenv/config';
 import {
   sendWhatsAppText,
@@ -15,7 +14,8 @@ import {
   ensureExpiry, setPending, getPending, clearPending, logout, bumpExpiry,
   shouldResetToMenu, resetToMenu,
   getReco, setReco, incRecoFail, resetRecoFail,
-  shouldPromptFeedback, markFeedbackPrompted
+  shouldPromptFeedback, markFeedbackPrompted,
+  bumpLastInteraction
 } from '../services/waSessionService.js';
 import { detectarIntent } from '../services/intentService.js';
 import {
@@ -26,6 +26,7 @@ import { t } from '../config/texts.js';
 
 const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || 'dev-token';
 const MAX_FAILS = Number(process.env.SEARCH_MAX_FAILS || 5);
+const DEBUG = process.env.DEBUG_RECO === '1';
 
 /* ========== VERIFY (hub.challenge) ========== */
 export function handleWhatsAppVerify(req, res) {
@@ -53,12 +54,8 @@ function extractIncomingMessages(body) {
           if (m.type === 'text') out.push({ from, text: (m.text?.body || '').trim() });
           if (m.type === 'interactive') {
             const it = m.interactive || {};
-            if (it.type === 'list_reply' && it.list_reply?.id) {
-              out.push({ from, text: String(it.list_reply.id).trim() });
-            }
-            if (it.type === 'button_reply' && it.button_reply?.id) {
-              out.push({ from, text: String(it.button_reply.id).trim() });
-            }
+            if (it.type === 'list_reply' && it.list_reply?.id) out.push({ from, text: String(it.list_reply.id).trim() });
+            if (it.type === 'button_reply' && it.button_reply?.id) out.push({ from, text: String(it.button_reply.id).trim() });
           }
         }
       }
@@ -94,6 +91,13 @@ async function sendConfirmList(from, body, yesId = 'confirm.si', noId = 'confirm
   await sendWhatsAppList(from, body, sections, header, t('btn_elegi'));
 }
 
+/* ===== Helper: saludo corto ===== */
+function isLikelyGreeting(s = '') {
+  const x = (s || '').trim().toLowerCase();
+  // “hola”, “holaa”, “holis”, “buenas”
+  return /^ho+la+s?$/.test(x) || /^holi+s?$/.test(x) || /^buen[oa]s?$/.test(x);
+}
+
 /* ===== Recomendación con contexto + desambiguación ===== */
 async function handleConsulta(from, nombre, consultaRaw) {
   const consulta = (consultaRaw || '').trim();
@@ -102,23 +106,28 @@ async function handleConsulta(from, nombre, consultaRaw) {
     return;
   }
 
-  // 1) Extraer señales nuevas y mergear con contexto previo (null-safe)
+  // 1) Extraer señales + merge con contexto previo
+  const prev = await getReco(from);
   const gptNew = await extraerTerminosBusqueda(consulta);
-  const recoCtx = (await getReco(from)) || {};
   const mergedTokens = {
-    must:   Array.from(new Set([...(recoCtx?.tokens?.must || []), ...(gptNew?.must || [])])),
-    should: Array.from(new Set([...(recoCtx?.tokens?.should || []), ...(gptNew?.should || [])])),
-    negate: Array.from(new Set([...(recoCtx?.tokens?.negate || []), ...(gptNew?.negate || [])]))
+    must:   Array.from(new Set([...(prev?.tokens?.must || []), ...(gptNew?.must || [])])),
+    should: Array.from(new Set([...(prev?.tokens?.should || []), ...(gptNew?.should || [])])),
+    negate: Array.from(new Set([...(prev?.tokens?.negate || []), ...(gptNew?.negate || [])]))
   };
 
-  console.log(`[RECO] consulta="${consulta}" gpt=${JSON.stringify(mergedTokens)}`);
+  if (DEBUG) {
+    console.log(`[RECO] consulta="${consulta}" prevTokens=${JSON.stringify(prev?.tokens||{})} new=${JSON.stringify(gptNew)} merged=${JSON.stringify(mergedTokens)}`);
+  } else {
+    console.log(`[RECO] consulta="${consulta}" gpt=${JSON.stringify(mergedTokens)}`);
+  }
 
-  // 2) Buscar
+  // 2) Buscar con GPT tokens
   const { validos = [], similares = [] } = await recomendarDesdeBBDD(consulta, { gpt: mergedTokens });
 
-  // 3) Sin resultados → desambiguar y escalar a los 5 fails
+  // 3) Sin resultados → pedir refinadores y escalar por fails
   if (!validos.length) {
     const after = await incRecoFail(from);
+    if (DEBUG) console.log(`[RECO][NO_MATCH] failCount=${after?.failCount}`);
 
     if (after?.failCount === 3) {
       await setReco(from, { tokens: mergedTokens, lastQuery: consulta });
@@ -159,7 +168,7 @@ async function handleConsulta(from, nombre, consultaRaw) {
     return;
   }
 
-  // 4) Con resultados → reset fails, guardar contexto y responder
+  // 4) Con resultados
   await resetRecoFail(from);
   await setReco(from, {
     tokens: mergedTokens,
@@ -188,7 +197,6 @@ async function handleConsulta(from, nombre, consultaRaw) {
 
   await sendWhatsAppText(from, respuesta);
 
-  // CTA breve para seguir hilando
   await sendWhatsAppButtons(from, t('cta_como_seguimos'), [
     { id: 'ver_mas', title: t('btn_ver_mas') },
     { id: 'humano',  title: t('btn_humano') },
@@ -207,6 +215,9 @@ export async function handleWhatsAppMessage(req, res) {
     for (const { from, text } of messages) {
       const session = await getOrCreateSession(from);
       await ensureExpiry(session);
+
+      // Marcar último mensaje de usuario apenas llega (métrica robusta de idle)
+      await bumpLastInteraction(from);
 
       // Feedback ping si regresa tras inactividad
       if (shouldPromptFeedback(session)) {
@@ -254,6 +265,7 @@ export async function handleWhatsAppMessage(req, res) {
       if (shouldResetToMenu(session)) {
         await resetToMenu(from);
         const vet = await getVetByCuit(session.cuit);
+        if (DEBUG) console.log('[MENU] reset due to idle');
         await sendWhatsAppText(from, t('menu_back_idle'));
         await sendMainList(from, firstName(vet?.nombre) || '');
         continue;
@@ -292,13 +304,62 @@ export async function handleWhatsAppMessage(req, res) {
       // --- Modo búsqueda continuo / refinadores
       if (state === 'awaiting_consulta') {
         const intent = detectarIntent(text) || '';
+        if (DEBUG) console.log(`[FLOW] awaiting_consulta intent=${intent}`);
+
+        // Interceptores para NO pasar al buscador con frases sociales
+        if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent) || isLikelyGreeting(text)) {
+          await sendMainList(from, nombre);
+          continue;
+        }
+        if (intent === 'promos') {
+          const promos = await Promocion.findAll({
+            where: { vigente: true },
+            order: [['vigencia_hasta','ASC'], ['nombre','ASC']],
+            limit: 10
+          });
+          if (!promos.length) {
+            await sendWhatsAppText(from, t('promos_empty'));
+          } else {
+            await sendWhatsAppList(from, t('promos_list_body'), [{
+              title: t('promos_list_title'),
+              rows: promos.map(p => ({
+                id: `promo:${p.id}`,
+                title: (p.nombre || '').slice(0,24),
+                description: [p.tipo, p.presentacion].filter(Boolean).join(' • ').slice(0,60)
+              }))
+            }], t('promos_list_header'), t('btn_elegi'));
+          }
+          continue;
+        }
+        if (intent === 'humano') {
+          const ej = vet?.EjecutivoCuenta;
+          if (ej) {
+            await sendWhatsAppContacts(from, [{
+              formatted_name: ej.nombre,
+              first_name: ej.nombre?.split(' ')[0],
+              last_name: ej.nombre?.split(' ').slice(1).join(' ') || undefined,
+              org: 'KrönenVet',
+              phones: ej.phone ? [{ phone: ej.phone, type: 'WORK' }] : [],
+              emails: ej.email ? [{ email: ej.email, type: 'WORK' }] : []
+            }]);
+            await sendWhatsAppText(from, t('ejecutivo_contacto_enviado', { ejecutivo: ej.nombre, telefono: ej.phone || '' }));
+          } else {
+            await sendWhatsAppText(from, t('ejecutivo_sin_asignar'));
+          }
+          continue;
+        }
+        if (intent === 'logout') {
+          await setPending(from, { action: 'logout', prev: { state } });
+          await setState(from, 'confirm');
+          await sendConfirmList(from, t('logout_confirm'), 'confirm.si', 'confirm.no', 'Salir');
+          continue;
+        }
 
         // especie via botones
         if (intent === 'species_perro' || intent === 'species_gato') {
           const especie = intent === 'species_perro' ? 'perro' : 'gato';
           await setReco(from, { tokens: { should: [especie] } });
           const r = await getReco(from);
-          // si hay última consulta, reintentar con ese contexto
           if (r?.lastQuery) {
             await handleConsulta(from, nombre, r.lastQuery);
           } else {
@@ -329,6 +390,7 @@ export async function handleWhatsAppMessage(req, res) {
           continue;
         }
 
+        // Búsqueda real
         console.log(`[FLOW] consulta="${(text||'').slice(0,80)}"`);
         await handleConsulta(from, nombre, text);
         continue;
@@ -424,7 +486,7 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      /* ====== Intents / Acciones ====== */
+      /* ====== Intents / Acciones fuera de awaiting_consulta ====== */
       const intent = detectarIntent(text) || '';
 
       if (text === 'main.buscar' || intent === 'buscar') {
@@ -529,7 +591,8 @@ export async function handleWhatsAppMessage(req, res) {
         await setState(from, 'awaiting_feedback_text');
         continue;
       }
-      if (state === 'awaiting_feedback_text') {
+      const stateNow = await getState(from);
+      if (stateNow === 'awaiting_feedback_text') {
         const comentario = (text || '').trim().slice(0, 3000);
         if (!comentario) { await sendWhatsAppText(from, t('fb_txt_empty')); continue; }
         await setState(from, 'awaiting_consulta');
