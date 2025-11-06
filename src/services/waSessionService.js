@@ -180,3 +180,16 @@ function mergeTokenSets(a = {}, b = {}) {
     negate: mergeArr(a.negate, b.negate)
   };
 }
+
+/**
+ * Resetea la sesión para volver al menú sin cerrar sesión:
+ * - state → 'awaiting_consulta'
+ * - pending → null (limpia confirmaciones y contexto de reco)
+ *   (el contexto de reco se re-crea con defaults vía getReco cuando haga falta)
+ */
+export async function resetToMenu(phone) {
+  await WhatsAppSession.update(
+    { state: 'awaiting_consulta', pending: null },
+    { where: { phone } }
+  );
+}

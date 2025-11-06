@@ -8,7 +8,7 @@ import {
   sendWhatsAppButtons
 } from '../services/whatsappService.js';
 
-import { recomendarDesdeBBDD, fetchProductsByIds } from '../services/recommendationService.js';
+import { recomendarDesdeBBDD } from '../services/recommendationService.js';
 import { responderConGPTStrict, extraerTerminosBusqueda } from '../services/gptService.js';
 import {
   getOrCreateSession, isExpired, upsertVerified, setState, getState,
