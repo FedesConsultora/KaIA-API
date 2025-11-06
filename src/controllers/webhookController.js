@@ -18,7 +18,7 @@ import {
   shouldPromptFeedback, markFeedbackPrompted,
   bumpLastInteraction
 } from '../services/waSessionService.js';
-import { detectarIntent } from '../services/intentService.js';
+import { detectarIntent, isLikelyGreeting, sanitizeText } from '../services/intentService.js';
 import {
   getVetByCuit, firstName, isValidEmail, updateVetEmail, updateVetName, isValidCuitNumber
 } from '../services/userService.js';
@@ -92,19 +92,24 @@ async function sendConfirmList(from, body, yesId = 'confirm.si', noId = 'confirm
   await sendWhatsAppList(from, body, sections, header, t('btn_elegi'));
 }
 
-/* ===== Helper: saludo corto ===== */
-function isLikelyGreeting(s = '') {
-  const x = (s || '').trim().toLowerCase();
-  return /^ho+la+s?$/.test(x) || /^holi+s?$/.test(x) || /^buen[oa]s?$/.test(x) || /^hey$/.test(x) || /^hi$/.test(x);
+/* ===== Helpers ===== */
+async function resetRecoContext(phone) {
+  await resetRecoFail(phone);
+  await setReco(phone, {
+    tokens: { must: [], should: [], negate: [] },
+    lastQuery: '',
+    lastSimilares: [],
+    lastShownIds: []
+  });
 }
 
 /* ===== Recomendación con contexto + desambiguación ===== */
 async function handleConsulta(from, nombre, consultaRaw) {
-  const consulta = (consultaRaw || '').trim();
+  const consulta = sanitizeText(consultaRaw || '');
 
-  // 🛑 Guard: si vino un saludo / comando de menú / "buscar", no buscamos: pedimos descripción.
-  if (!consulta || isLikelyGreeting(consulta) || /^main\./i.test(consulta) || /^buscar$/i.test(consulta)) {
-    console.log(`[RECO][SKIP] query="${consulta}" reason=${!consulta ? 'empty' : isLikelyGreeting(consulta) ? 'greeting' : /^main\./i.test(consulta) ? 'main_cmd' : 'buscar_cmd'}`);
+  // 🛑 Guard: saludo / menú / "buscar" → NO buscar
+  if (!consulta || isLikelyGreeting(consulta) || /^main\./i.test(consulta) || /^buscar$/i.test(consulta) || /^menu$/i.test(consulta)) {
+    console.log(`[RECO][SKIP] query="${consulta}" reason=${!consulta ? 'empty' : isLikelyGreeting(consulta) ? 'greeting' : /^main\./i.test(consulta) ? 'main_cmd' : /^menu$/i.test(consulta) ? 'menu_cmd' : 'buscar_cmd'}`);
     await sendWhatsAppText(from, t('pedir_consulta'));
     return;
   }
@@ -162,6 +167,8 @@ async function handleConsulta(from, nombre, consultaRaw) {
       } else {
         await sendWhatsAppText(from, t('ejecutivo_sin_asignar'));
       }
+      await resetRecoContext(from);
+      await sendMainList(from, nombre);
       return;
     }
 
@@ -200,8 +207,8 @@ async function handleConsulta(from, nombre, consultaRaw) {
 
   await sendWhatsAppText(from, respuesta);
 
+  // 👇 Sin "Ver más opciones"
   await sendWhatsAppButtons(from, t('cta_como_seguimos'), [
-    { id: 'ver_mas', title: t('btn_ver_mas') },
     { id: 'humano',  title: t('btn_humano') },
     { id: 'menu',    title: t('btn_menu') }
   ]);
@@ -232,12 +239,13 @@ export async function handleWhatsAppMessage(req, res) {
         await markFeedbackPrompted(from);
       }
 
-      console.log(`[RX] from=${from} state=${session.state} cuit=${session.cuit || '-'} text="${(text || '').slice(0, 160)}"`);
+      const normText = sanitizeText(text || '');
+      console.log(`[RX] from=${from} state=${session.state} cuit=${session.cuit || '-'} text="${normText.slice(0, 160)}"`);
 
       // ===== Gating por CUIT + expiración
       const loggedIn = !!(session.cuit && !isExpired(session));
       if (!loggedIn) {
-        const digits = (text || '').replace(/\D/g, '');
+        const digits = (normText || '').replace(/\D/g, '');
         if (/^\d{11}$/.test(digits)) {
           if (!isValidCuitNumber(digits)) {
             console.log(`[AUTH] gating=cuenta invalida (checksum) cuit=${digits}`);
@@ -284,7 +292,7 @@ export async function handleWhatsAppMessage(req, res) {
 
       // --- Captura de NUEVO NOMBRE
       if (state === 'awaiting_nombre_value') {
-        const nuevo = String(text || '').trim().slice(0, 120);
+        const nuevo = String(normText || '').slice(0, 120);
         if (!nuevo) { await sendWhatsAppText(from, t('editar_pedir_nombre')); continue; }
         await setPending(from, { action: 'edit_nombre', value: nuevo, prev: { state } });
         await setState(from, 'confirm');
@@ -295,7 +303,7 @@ export async function handleWhatsAppMessage(req, res) {
 
       // --- Captura de NUEVO EMAIL
       if (state === 'awaiting_email_value') {
-        const email = String(text || '').trim();
+        const email = String(normText || '');
         if (!isValidEmail(email)) { await sendWhatsAppText(from, t('editar_email_invalido')); continue; }
         await setPending(from, { action: 'edit_email', value: email, prev: { state } });
         await setState(from, 'confirm');
@@ -306,12 +314,13 @@ export async function handleWhatsAppMessage(req, res) {
 
       // --- Modo búsqueda continuo / refinadores
       if (state === 'awaiting_consulta') {
-        const intent = detectarIntent(text) || '';
+        const intent = detectarIntent(normText) || '';
         if (DEBUG) console.log(`[FLOW] awaiting_consulta intent=${intent}`);
 
         // 🛑 Interceptores: NO pasar al buscador con frases sociales / comandos
-        if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent) || isLikelyGreeting(text)) {
+        if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent) || isLikelyGreeting(normText)) {
           console.log('[GUARD] greeting/menu/ayuda → mostrar menú');
+          await resetRecoContext(from);
           await sendMainList(from, nombre);
           continue;
         }
@@ -377,46 +386,33 @@ export async function handleWhatsAppMessage(req, res) {
           continue;
         }
 
-        // ver más
-        if (intent === 'ver_mas') {
-          const r = await getReco(from);
-          if (!r?.lastSimilares?.length) {
-            await sendWhatsAppText(from, t('reco_no_mas_similares'));
-          } else {
-            const prods = await fetchProductsByIds(r.lastSimilares.slice(0, 6));
-            if (!prods.length) {
-              await sendWhatsAppText(from, t('reco_no_mas_similares'));
-            } else {
-              const bullets = prods.map(p => `• ${p.nombre}${p.marca ? ` — ${p.marca}` : ''}`).join('\n');
-              await sendWhatsAppText(from, `${t('reco_similares_intro')}\n${bullets}`);
-            }
-          }
-          continue;
-        }
+        // 🚫 Eliminado 'ver_mas'
 
         if (intent === 'volver') {
+          await resetRecoContext(from);
           await sendMainList(from, nombre);
           continue;
         }
 
         // Búsqueda real
-        console.log(`[FLOW] consulta="${(text||'').slice(0,80)}"`);
-        await handleConsulta(from, nombre, text);
+        console.log(`[FLOW] consulta="${(normText||'').slice(0,80)}"`);
+        await handleConsulta(from, nombre, normText);
         continue;
       }
 
       // --- Confirmaciones (sí/no/volver)
       if (state === 'confirm') {
-        const raw = (text || '').toLowerCase();
-        const intentC = detectarIntent(text);
+        const raw = (normText || '').toLowerCase();
+        const intentC = detectarIntent(normText);
         const isNo   = intentC === 'confirm_no' || raw === 'confirm.no';
         const isYes  = intentC === 'confirm_si' || raw === 'confirm.si';
-        const isBack = intentC === 'volver';
+        const isBack = intentC === 'volver' || intentC === 'menu';
 
         const goBack = async () => {
           if (!pending?.prev?.state) {
             await clearPending(from);
             await setState(from, 'awaiting_consulta');
+            await resetRecoContext(from);
             await sendMainList(from, nombre);
             return;
           }
@@ -427,6 +423,7 @@ export async function handleWhatsAppMessage(req, res) {
           } else if (prevState === 'awaiting_email_value') {
             await sendWhatsAppText(from, t('editar_pedir_email'));
           } else {
+            await resetRecoContext(from);
             await sendMainList(from, nombre);
           }
         };
@@ -496,7 +493,7 @@ export async function handleWhatsAppMessage(req, res) {
       }
 
       /* ====== Intents / Acciones fuera de awaiting_consulta ====== */
-      const intent = detectarIntent(text) || '';
+      const intent = detectarIntent(normText) || '';
 
       if (intent === 'buscar') {
         await setState(from, 'awaiting_consulta');
@@ -504,7 +501,7 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      if (intent === 'promos' || /promo/i.test(text || '')) {
+      if (intent === 'promos' || /promo/i.test(normText || '')) {
         const promos = await Promocion.findAll({
           where: { vigente: true },
           order: [['vigencia_hasta','ASC'], ['nombre','ASC']],
@@ -525,8 +522,8 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      if ((text || '').startsWith('promo:')) {
-        const pid = Number(String(text).split(':')[1]);
+      if ((normText || '').startsWith('promo:')) {
+        const pid = Number(String(normText).split(':')[1]);
         const p = await Promocion.findByPk(pid);
         if (!p) { await sendWhatsAppText(from, t('promo_open_error')); continue; }
         const body = [
@@ -602,7 +599,7 @@ export async function handleWhatsAppMessage(req, res) {
       }
       const stateNow = await getState(from);
       if (stateNow === 'awaiting_feedback_text') {
-        const comentario = (text || '').trim().slice(0, 3000);
+        const comentario = (normText || '').slice(0, 3000);
         if (!comentario) { await sendWhatsAppText(from, t('fb_txt_empty')); continue; }
         await setState(from, 'awaiting_consulta');
         await WhatsAppSession.update({ feedbackLastResponseAt: new Date() }, { where: { phone: from } });
@@ -612,6 +609,7 @@ export async function handleWhatsAppMessage(req, res) {
       }
 
       if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent)) {
+        await resetRecoContext(from);
         await sendMainList(from, nombre);
         continue;
       }
@@ -623,7 +621,7 @@ export async function handleWhatsAppMessage(req, res) {
 
       // Fallback: seguimos en búsqueda (pero con guards en handleConsulta)
       await setState(from, 'awaiting_consulta');
-      await handleConsulta(from, nombre, text);
+      await handleConsulta(from, nombre, normText);
     }
   } catch (err) {
     console.error('❌ Error en webhook WhatsApp:', err);

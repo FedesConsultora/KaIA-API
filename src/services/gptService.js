@@ -68,10 +68,10 @@ export async function responderConGPTStrict(mensajeVet, { productosValidos = [],
 // 🆕 ampliamos STOP para ignorar saludos/comandos triviales
 const STOP = new Set([
   'de','para','por','con','sin','y','o','la','el','los','las','un','una','unos','unas','que','del','al','en','a','se',
-  'hola','holaa','holis','buenas','buenos','hey','hi','menu','buscar'
+  'hola','holaa','holis','buenas','buenos','hey','hi','menu','menú','buscar','volver','opciones','inicio','gracias','chau','adios','adiós','hasta','luego'
 ]);
 
-const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
+const norm = (s) => (s || '').toLowerCase().normalize('NFKD').replace(/\p{Diacritic}/gu, '').trim();
 
 /** Heurística offline si no hay API */
 function naiveExtract(query) {

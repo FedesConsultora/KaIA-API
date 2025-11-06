@@ -6,30 +6,48 @@
  * 'editar' | 'editar_nombre' | 'editar_email' |
  * 'confirm_si' | 'confirm_no' | 'volver' | 'logout' |
  * 'gracias' | 'despedida' | 'promos' | 'recomendacion' |
- * 'feedback_ok' | 'feedback_meh' | 'feedback_txt' |
- * 'ver_mas' | 'species_perro' | 'species_gato'
+ * 'feedback_ok' | 'feedback_meh' | 'feedback_txt'
  */
 
+// 👇 Normalizador robusto: saca tildes, caracteres invisibles (ZW*, LRM, etc.), colapsa espacios
+export function sanitizeText(input = '') {
+  return String(input)
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g, '') // ZW* y format chars
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// 👇 Heurística de saludo “suelto” (hola/holis/buenas/hey/hi) ya normalizado
+export function isLikelyGreeting(s = '') {
+  const x = sanitizeText(s).toLowerCase();
+  return (
+    /^(ho+la+s?|holi+s?)$/.test(x) ||
+    /^(buen[oa]s?(?: dias| tardes| noches)?)$/.test(x) ||
+    /^(hey|hi)$/.test(x)
+  );
+}
+
 const RX = {
-  saludo: /^(hola+|holi+|buen[oa]s?(?:\s+d[ií]as|\s+tardes|\s+noches)?|hey|hi)$/i,
+  saludo: /^(hola+|holi+|buen[oa]s?(?:\s+dias|\s+tardes|\s+noches)?|hey|hi)$/i,
   menu: /^(menu|opciones|inicio)$/i,
   ayuda: /(ayuda|como\s+funciona|que\s+puedo\s+hacer)/i,
   gracias: /^(gracias+|grac+|mil\s+gracias|gracias!*)$/i,
-  despedida: /(chau|adios|adiós|hasta\s+luego|nos\s+vemos)/i,
+  despedida: /(chau|adios|hasta\s+luego|nos\s+vemos)/i,
   humano: /(hablar|contactar|comunicar)(?:me)?\s+(con\s+)?(humano|asesor|ejecutiv[oa]|vendedor)/i,
   editar: /(editar|actualizar|cambiar)\s+(mis\s+)?(datos|perfil)/i,
   editar_nombre: /(cambi(ar|o)\s+)?(mi\s+)?nombre|actualizar\s+nombre/i,
   editar_email: /(cambi(ar|o)\s+)?(mi\s+)?email|correo|mail/i,
-  logout: /(cerrar\s+sesión|cerrar\s+sesion|logout|salir|deslogue(ar|arse)|cerrar)$/i,
+  logout: /(cerrar\s+sesion|cerrar\s+sesión|logout|salir|deslogue(ar|arse)|cerrar)$/i,
   confirm_si: /^(si|sí|s|ok|dale|confirmo|acepto|afirmativo)$/i,
   confirm_no: /^(no|n|cancelar|negativo)$/i,
-  volver: /(volver|atrás|atras|anterior|retroceder)$/i,
+  volver: /(volver|atras|atrás|anterior|retroceder)$/i,
   promos: /\b(promo(?:s)?|oferta(?:s)?)\b/i,
   buscar: /^(buscar|consulta|producto|recomendar)$/i
 };
 
 const BUTTON_IDS = new Map([
-  // Botones cortos
   ['buscar', 'buscar'],
   ['humano', 'humano'],
   ['editar', 'editar'],
@@ -41,14 +59,14 @@ const BUTTON_IDS = new Map([
   ['confirm_no', 'confirm_no'],
   ['back', 'volver'],
   ['volver', 'volver'],
-  ['ver_mas', 'ver_mas'],
+  // 🚫 quitamos 'ver_mas'
   ['perro', 'species_perro'],
   ['gato',  'species_gato'],
   ['fb_ok',  'feedback_ok'],
   ['fb_meh', 'feedback_meh'],
   ['fb_txt', 'feedback_txt'],
 
-  // 🆕 Items de lista "main.*" mapeados a intents
+  // Items de lista "main.*" mapeados
   ['main.buscar', 'buscar'],
   ['main.promos', 'promos'],
   ['main.editar', 'editar'],
@@ -56,7 +74,7 @@ const BUTTON_IDS = new Map([
 ]);
 
 export function detectarIntent(texto = '') {
-  const t = (texto || '').trim();
+  const t = sanitizeText(texto);
   if (!t) return 'vacio';
 
   if (BUTTON_IDS.has(t)) return BUTTON_IDS.get(t);

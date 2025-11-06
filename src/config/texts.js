@@ -29,7 +29,7 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
     'No tengo más opciones similares por ahora. Probá afinando por especie, marca o presentación.',
   reco_similares_intro: 'Algunas alternativas similares:',
 
-  // CTA de post-respuesta
+  // CTA post-respuesta (SIN "ver más")
   cta_como_seguimos: '¿Cómo seguimos?',
 
   /* ====== Menú principal ====== */
@@ -82,8 +82,9 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   /* ====== Ejecutivo ====== */
   ejecutivo_contacto_enviado:
     'Te compartí el contacto de tu ejecutivo {ejecutivo}. También podés escribirle directo: wa.me/{telefono}',
+  // 👇 Cambio solicitado
   ejecutivo_sin_asignar:
-    'Todavía no tenés un ejecutivo asignado. Avisanos y te contactamos a la brevedad.',
+    'Todavía no tenés un ejecutivo asignado. **Nos vamos a comunicar a la brevedad.**',
   escala_ejecutivo:
     'Te comparto el contacto de tu ejecutivo de cuentas **{ejecutivo}** para que continúen por ahí. 👇',
 
@@ -104,7 +105,7 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   btn_confirmar: '✅ Confirmar',
   btn_cancelar: '↩️ Cancelar',
   btn_volver: '↩️ Volver',
-  btn_ver_mas: 'Ver más opciones',
+  // 🚫 Eliminado btn_ver_mas
   btn_humano: 'Hablar con asesor',
   btn_menu: 'Volver al menú',
   btn_perro: '🐶 Perro',
