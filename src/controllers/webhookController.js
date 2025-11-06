@@ -8,7 +8,7 @@ import {
   sendWhatsAppButtons
 } from '../services/whatsappService.js';
 
-import { recomendarDesdeBBDD } from '../services/recommendationService.js';
+import { recomendarDesdeBBDD, fetchProductsByIds } from '../services/recommendationService.js';
 import { responderConGPTStrict, extraerTerminosBusqueda } from '../services/gptService.js';
 import {
   getOrCreateSession, isExpired, upsertVerified, setState, getState,
@@ -67,31 +67,31 @@ function extractIncomingMessages(body) {
   return out;
 }
 
-/* ========== LISTAS ========== */
+/* ========== LISTAS (sin botones) ========== */
 async function sendMainList(from, nombre = '') {
-  const body = '¿Qué te gustaría hacer?';
+  const body = t('menu_main_body');
   const sections = [{
-    title: 'KaIA – KrönenVet',
+    title: t('menu_main_title'),
     rows: [
-      { id: 'main.buscar',  title: '🔍 Buscar productos', description: 'Nombre, marca o necesidad' },
-      { id: 'main.promos',  title: '🎁 Promociones',      description: 'Ofertas vigentes' },
-      { id: 'main.editar',  title: '✍️ Mis datos',        description: 'Cambiar nombre o email' },
-      { id: 'main.logout',  title: '🚪 Cerrar sesión',     description: 'Luego volverás a verificar tu CUIT' }
+      { id: 'main.buscar',  title: t('menu_item_buscar_title'), description: t('menu_item_buscar_desc') },
+      { id: 'main.promos',  title: t('menu_item_promos_title'), description: t('menu_item_promos_desc') },
+      { id: 'main.editar',  title: t('menu_item_editar_title'), description: t('menu_item_editar_desc') },
+      { id: 'main.logout',  title: t('menu_item_logout_title'), description: t('menu_item_logout_desc') }
     ]
   }];
-  const header = nombre ? t('saludo_header', { nombre }) : 'KaIA';
-  await sendWhatsAppList(from, body, sections, header, 'Elegí');
+  const header = nombre ? t('saludo_header', { nombre }) : t('menu_main_title');
+  await sendWhatsAppList(from, body, sections, header, t('btn_elegi'));
 }
 
 async function sendConfirmList(from, body, yesId = 'confirm.si', noId = 'confirm.no', header = 'Confirmar') {
   const sections = [{
     title: 'Confirmación',
     rows: [
-      { id: yesId, title: '✅ Confirmar' },
-      { id: noId , title: '↩️ Cancelar' }
+      { id: yesId, title: t('btn_confirmar') },
+      { id: noId , title: t('btn_cancelar') }
     ]
   }];
-  await sendWhatsAppList(from, body, sections, header, 'Elegí');
+  await sendWhatsAppList(from, body, sections, header, t('btn_elegi'));
 }
 
 /* ===== Recomendación con contexto + desambiguación ===== */
@@ -102,36 +102,36 @@ async function handleConsulta(from, nombre, consultaRaw) {
     return;
   }
 
-  // 1) Extraer señales nuevas y mergear con contexto previo
+  // 1) Extraer señales nuevas y mergear con contexto previo (null-safe)
   const gptNew = await extraerTerminosBusqueda(consulta);
-  const recoCtx = await getReco(from);
+  const recoCtx = (await getReco(from)) || {};
   const mergedTokens = {
-    must:   Array.from(new Set([...(recoCtx.tokens.must||[]), ...(gptNew.must||[])])),
-    should: Array.from(new Set([...(recoCtx.tokens.should||[]), ...(gptNew.should||[])])),
-    negate: Array.from(new Set([...(recoCtx.tokens.negate||[]), ...(gptNew.negate||[])]))
+    must:   Array.from(new Set([...(recoCtx?.tokens?.must || []), ...(gptNew?.must || [])])),
+    should: Array.from(new Set([...(recoCtx?.tokens?.should || []), ...(gptNew?.should || [])])),
+    negate: Array.from(new Set([...(recoCtx?.tokens?.negate || []), ...(gptNew?.negate || [])]))
   };
 
   console.log(`[RECO] consulta="${consulta}" gpt=${JSON.stringify(mergedTokens)}`);
 
   // 2) Buscar
-  const { validos = [], top, similares = [] } = await recomendarDesdeBBDD(consulta, { gpt: mergedTokens });
+  const { validos = [], similares = [] } = await recomendarDesdeBBDD(consulta, { gpt: mergedTokens });
 
   // 3) Sin resultados → desambiguar y escalar a los 5 fails
   if (!validos.length) {
     const after = await incRecoFail(from);
 
-    if (after.failCount === 3) {
+    if (after?.failCount === 3) {
       await setReco(from, { tokens: mergedTokens, lastQuery: consulta });
       await sendWhatsAppText(from, t('no_match'));
-      await sendWhatsAppButtons(from, '¿Para qué especie es?', [
-        { id: 'perro', title: '🐶 Perro' },
-        { id: 'gato',  title: '🐱 Gato' },
-        { id: 'volver', title: '↩️ Volver' }
+      await sendWhatsAppButtons(from, t('reco_pedir_especie'), [
+        { id: 'perro', title: t('btn_perro') },
+        { id: 'gato',  title: t('btn_gato') },
+        { id: 'volver', title: t('btn_volver') }
       ]);
       return;
     }
 
-    if (after.failCount >= MAX_FAILS) {
+    if ((after?.failCount || 0) >= MAX_FAILS) {
       const s = await getOrCreateSession(from);
       const vet = s?.cuit ? await getVetByCuit(s.cuit) : null;
       const ej = vet?.EjecutivoCuenta;
@@ -189,10 +189,10 @@ async function handleConsulta(from, nombre, consultaRaw) {
   await sendWhatsAppText(from, respuesta);
 
   // CTA breve para seguir hilando
-  await sendWhatsAppButtons(from, '¿Cómo seguimos?', [
-    { id: 'ver_mas', title: 'Ver más opciones' },
-    { id: 'humano',  title: 'Hablar con asesor' },
-    { id: 'menu',    title: 'Volver al menú' }
+  await sendWhatsAppButtons(from, t('cta_como_seguimos'), [
+    { id: 'ver_mas', title: t('btn_ver_mas') },
+    { id: 'humano',  title: t('btn_humano') },
+    { id: 'menu',    title: t('btn_menu') }
   ]);
 }
 
@@ -208,9 +208,9 @@ export async function handleWhatsAppMessage(req, res) {
       const session = await getOrCreateSession(from);
       await ensureExpiry(session);
 
-      // Feedback ping si regresa tras inactividad (guía lo sugiere)
+      // Feedback ping si regresa tras inactividad
       if (shouldPromptFeedback(session)) {
-        await sendWhatsAppButtons(from, '¿Te fue útil esta ayuda?', [
+        await sendWhatsAppButtons(from, t('fb_ping'), [
           { id: 'fb_ok',  title: '👍 Sí' },
           { id: 'fb_meh', title: '👎 No' },
           { id: 'fb_txt', title: '💬 Dejar comentario' }
@@ -254,7 +254,7 @@ export async function handleWhatsAppMessage(req, res) {
       if (shouldResetToMenu(session)) {
         await resetToMenu(from);
         const vet = await getVetByCuit(session.cuit);
-        await sendWhatsAppText(from, 'Volvemos al inicio para ayudarte mejor. 👇');
+        await sendWhatsAppText(from, t('menu_back_idle'));
         await sendMainList(from, firstName(vet?.nombre) || '');
         continue;
       }
@@ -292,17 +292,43 @@ export async function handleWhatsAppMessage(req, res) {
       // --- Modo búsqueda continuo / refinadores
       if (state === 'awaiting_consulta') {
         const intent = detectarIntent(text) || '';
-        if (intent === 'ver_mas') {
+
+        // especie via botones
+        if (intent === 'species_perro' || intent === 'species_gato') {
+          const especie = intent === 'species_perro' ? 'perro' : 'gato';
+          await setReco(from, { tokens: { should: [especie] } });
           const r = await getReco(from);
-          if (!r.lastSimilares?.length) {
-            await sendWhatsAppText(from, 'No tengo más opciones similares por ahora. Probá afinando por especie, marca o presentación.');
+          // si hay última consulta, reintentar con ese contexto
+          if (r?.lastQuery) {
+            await handleConsulta(from, nombre, r.lastQuery);
           } else {
-            await sendWhatsAppText(from, 'Algunas alternativas similares:');
-            // mostrar por nombre/marca con bullets
-            // (si querés, acá podés buscar esos IDs y listarlos bonito)
+            await sendWhatsAppText(from, t('pedir_consulta'));
           }
           continue;
         }
+
+        // ver más
+        if (intent === 'ver_mas') {
+          const r = await getReco(from);
+          if (!r?.lastSimilares?.length) {
+            await sendWhatsAppText(from, t('reco_no_mas_similares'));
+          } else {
+            const prods = await fetchProductsByIds(r.lastSimilares.slice(0, 6));
+            if (!prods.length) {
+              await sendWhatsAppText(from, t('reco_no_mas_similares'));
+            } else {
+              const bullets = prods.map(p => `• ${p.nombre}${p.marca ? ` — ${p.marca}` : ''}`).join('\n');
+              await sendWhatsAppText(from, `${t('reco_similares_intro')}\n${bullets}`);
+            }
+          }
+          continue;
+        }
+
+        if (intent === 'volver') {
+          await sendMainList(from, nombre);
+          continue;
+        }
+
         console.log(`[FLOW] consulta="${(text||'').slice(0,80)}"`);
         await handleConsulta(from, nombre, text);
         continue;
@@ -414,24 +440,24 @@ export async function handleWhatsAppMessage(req, res) {
           limit: 10
         });
         if (!promos.length) {
-          await sendWhatsAppText(from, 'Disculpá, en este momento no tenemos ninguna promoción activa.');
+          await sendWhatsAppText(from, t('promos_empty'));
           continue;
         }
-        await sendWhatsAppList(from, 'Promos vigentes:', [{
-          title: 'Promociones',
+        await sendWhatsAppList(from, t('promos_list_body'), [{
+          title: t('promos_list_title'),
           rows: promos.map(p => ({
             id: `promo:${p.id}`,
             title: (p.nombre || '').slice(0,24),
             description: [p.tipo, p.presentacion].filter(Boolean).join(' • ').slice(0,60)
           }))
-        }], 'KaIA – Promos', 'Ver');
+        }], t('promos_list_header'), t('btn_elegi'));
         continue;
       }
 
       if ((text || '').startsWith('promo:')) {
         const pid = Number(String(text).split(':')[1]);
         const p = await Promocion.findByPk(pid);
-        if (!p) { await sendWhatsAppText(from, 'No pude abrir esa promoción.'); continue; }
+        if (!p) { await sendWhatsAppText(from, t('promo_open_error')); continue; }
         const body = [
           `🎁 ${p.nombre}`,
           p.tipo ? `Tipo: ${p.tipo}` : null,
@@ -450,7 +476,7 @@ export async function handleWhatsAppMessage(req, res) {
             { id: 'edit.nombre', title: '🏷 Nombre', description: 'Razón social / Fantasía' },
             { id: 'edit.email' , title: '📧 Email' , description: 'Correo de contacto' }
           ]
-        }], 'Editar datos', 'Elegí');
+        }], 'Editar datos', t('btn_elegi'));
         continue;
       }
 
@@ -494,21 +520,21 @@ export async function handleWhatsAppMessage(req, res) {
       // Feedback
       if (intent === 'feedback_ok') {
         await WhatsAppSession.update({ feedbackLastResponseAt: new Date() }, { where: { phone: from } });
-        await sendWhatsAppText(from, '¡Genial! Gracias por contarnos. 🙌');
+        await sendWhatsAppText(from, t('fb_ok_resp'));
         continue;
       }
       if (intent === 'feedback_meh' || intent === 'feedback_txt') {
         await WhatsAppSession.update({ feedbackLastResponseAt: new Date() }, { where: { phone: from } });
-        await sendWhatsAppText(from, 'Te leo 👇 Contame en un mensaje qué mejorarías.');
+        await sendWhatsAppText(from, t('fb_meh_ask'));
         await setState(from, 'awaiting_feedback_text');
         continue;
       }
       if (state === 'awaiting_feedback_text') {
         const comentario = (text || '').trim().slice(0, 3000);
-        if (!comentario) { await sendWhatsAppText(from, '¿Podés escribir tu comentario? 👇'); continue; }
+        if (!comentario) { await sendWhatsAppText(from, t('fb_txt_empty')); continue; }
         await setState(from, 'awaiting_consulta');
         await WhatsAppSession.update({ feedbackLastResponseAt: new Date() }, { where: { phone: from } });
-        await sendWhatsAppText(from, '¡Gracias! Registré tu comentario. 💬');
+        await sendWhatsAppText(from, t('fb_txt_ok'));
         await sendWhatsAppText(from, t('refinar_follow'));
         continue;
       }

@@ -1,4 +1,5 @@
 // src/services/recommendationService.js
+// ----------------------------------------------------
 import { Op } from 'sequelize';
 import { Producto, Promocion } from '../models/index.js';
 
@@ -7,13 +8,14 @@ const norm = (s) =>
 
 const LIKE_FIELDS = ['nombre', 'presentacion', 'marca', 'rubro', 'familia', 'observaciones'];
 
-// Diccionario mínimo de sinónimos/typos frecuentes
+// Sinónimos / typos frecuentes (extendible)
 const SYNONYMS = new Map([
-  ['biogenes', ['biogenesis', 'bago', 'biogenesis bago', 'biogenes bago', 'biogenesis bago', 'biogenesis bago', 'biogenesis bago']],
-  ['biogenes bajo', ['biogenesis bago','biogenesis bagó','biogenesis bago','biogenesis bagó','biogenesis bagó']],
-  ['biogenesis bago', ['biogenes','biogenesis bagó','biogenesis']],
+  ['biogenes', ['biogenesis', 'bagó', 'bago', 'biogenesis bago', 'biogenesis bagó']],
+  ['biogenesis bago', ['biogenes', 'bago', 'bagó']],
   ['brouwer', ['laboratorios brouwer']],
-  ['fatro', ['fatro von franken','von franken','fatrovonfranken']]
+  ['fatro', ['fatro von franken', 'von franken', 'fatrovonfranken']],
+  ['pipetas', ['pipeta', 'spot on', 'tópico', 'topico']],
+  ['antiparasitario', ['antiparasitarias', 'pulgas', 'garrapatas']]
 ]);
 
 function expandWithSynonyms(tokens = []) {
@@ -40,6 +42,7 @@ export function toGPTProduct(p) {
   };
 }
 
+/** Buscar por término + señales gpt { must, should, negate } */
 export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   const term = (termRaw || '').trim();
   const gpt = opts.gpt || { must: [], should: [], negate: [] };
@@ -51,8 +54,8 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   const baseTokens = norm(term).split(/\s+/).filter(Boolean);
   const tokensRaw = Array.from(new Set([
     ...baseTokens,
-    ...(gpt.must||[]),
-    ...(gpt.should||[])
+    ...(gpt.must || []),
+    ...(gpt.should || [])
   ]));
   const tokens = expandWithSynonyms(tokensRaw);
 
@@ -78,11 +81,15 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
   const scored = candidatos
     .map((p) => {
-      const H = norm([p.nombre, p.presentacion, p.marca, p.rubro, p.familia, p.observaciones].filter(Boolean).join(' | '));
+      const H = norm([p.nombre, p.presentacion, p.marca, p.rubro, p.familia, p.observaciones]
+        .filter(Boolean).join(' | '));
 
-      for (const m of (gpt.must||[])) if (m && !H.includes(norm(m))) return null;
+      // must
+      for (const m of (gpt.must || [])) if (m && !H.includes(norm(m))) return null;
+      // negate
       for (const n of neg) if (n && H.includes(n)) return null;
 
+      // scoring
       let s = 0;
       for (const t of tokens) {
         if (!t) continue;
@@ -91,14 +98,14 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
         if (p.marca && norm(p.marca).includes(t)) s += 1.6;   // boost marca
       }
       if (p.observaciones) {
-        for (const t of [...(gpt.must||[]), ...(gpt.should||[])]) {
+        for (const t of [...(gpt.must || []), ...(gpt.should || [])]) {
           const nt = norm(t);
           if (nt && norm(p.observaciones).includes(nt)) s += 1.2;
         }
       }
       s += (Number(p.cantidad) || 0) / 800;          // disponibilidad
       if (p.Promocions?.length) s += 1.5;           // tener promo ayuda
-      if (p.precio) s += 0.3;                        // tener precio visible ayuda levemente
+      if (p.precio) s += 0.3;                        // precio visible
 
       return { p, s };
     })
@@ -113,6 +120,18 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
   const validos = scored.slice(0, 3).map(toGPTProduct);
   const top = validos[0] || null;
-  const similares = scored.slice(3, 9).map(toGPTProduct); 
+  const similares = scored.slice(3, 9).map(toGPTProduct); // más similares por si piden "ver más"
+
   return { validos, top, similares };
+}
+
+/** Helper para listar similares por IDs (para el botón "ver más") */
+export async function fetchProductsByIds(ids = []) {
+  if (!ids?.length) return [];
+  const rows = await Producto.findAll({
+    where: { id: { [Op.in]: ids } },
+    include: [{ model: Promocion, attributes: ['nombre'], required: false }],
+    order: [['nombre', 'ASC']]
+  });
+  return rows.map(toGPTProduct);
 }

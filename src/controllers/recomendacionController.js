@@ -1,4 +1,5 @@
 // src/controllers/recomendacionController.js
+// ----------------------------------------------------
 import { recomendarDesdeBBDD } from '../services/recommendationService.js';
 import { responderConGPTStrict } from '../services/gptService.js';
 

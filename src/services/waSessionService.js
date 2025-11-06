@@ -8,11 +8,10 @@ const TTL_DAYS = Number(
   60
 );
 
-// ⏱️ inactividad para volver al menú (pide 12h)
-const MENU_IDLE_MS = Number(process.env.MENU_IDLE_MS || (12 * 60 * 60 * 1000)); // 12h
-
-// ⏱️ inactividad para pedir feedback (guía funcional lo contempla)
-const FEEDBACK_IDLE_MS = Number(process.env.FEEDBACK_IDLE_MS || (15 * 60 * 1000)); // 15m
+// ⏱️ inactividad para volver al menú (12h)
+const MENU_IDLE_MS = Number(process.env.MENU_IDLE_MS || (12 * 60 * 60 * 1000));
+// ⏱️ inactividad para ping de feedback (15m)
+const FEEDBACK_IDLE_MS = Number(process.env.FEEDBACK_IDLE_MS || (15 * 60 * 1000));
 
 export async function getOrCreateSession(phone) {
   let s = await WhatsAppSession.findOne({ where: { phone } });
@@ -72,7 +71,6 @@ export async function isLogged(phone) {
 }
 
 export async function setPending(phone, pending) {
-  // ⚠️ Mantener compatibilidad: si otro código llama setPending, mergeamos
   const s = await WhatsAppSession.findOne({ where: { phone } });
   const cur = s?.pending || {};
   const next = mergePendingObjects(cur, pending);
@@ -119,11 +117,16 @@ export async function markFeedbackPrompted(phone) {
   await WhatsAppSession.update({ feedbackLastPromptAt: new Date() }, { where: { phone } });
 }
 
-/* ===== Contexto de recomendación (sin migraciones) =====
-   Guardamos bajo pending.reco para no tocar schema. */
+/* ===== Contexto de recomendación (sin migraciones) ===== */
 export async function getReco(phone) {
   const p = await getPending(phone);
-  const def = { failCount: 0, tokens: { must: [], should: [], negate: [] }, lastQuery: '', lastSimilares: [], lastShownIds: [] };
+  const def = {
+    failCount: 0,
+    tokens: { must: [], should: [], negate: [] },
+    lastQuery: '',
+    lastSimilares: [],
+    lastShownIds: []
+  };
   return (p && p.reco) ? { ...def, ...p.reco } : def;
 }
 
@@ -152,7 +155,6 @@ export async function resetRecoFail(phone) {
 /* ===== Utils ===== */
 function mergePendingObjects(a, b) {
   const out = { ...(a || {}) , ...(b || {}) };
-  // mezclar reco sin pisar
   if (a?.reco || b?.reco) {
     out.reco = {
       ...(a?.reco || {}),

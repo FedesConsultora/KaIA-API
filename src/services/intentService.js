@@ -6,7 +6,8 @@
  * 'editar' | 'editar_nombre' | 'editar_email' |
  * 'confirm_si' | 'confirm_no' | 'volver' | 'logout' |
  * 'gracias' | 'despedida' | 'promos' | 'recomendacion' |
- * 'feedback_ok' | 'feedback_meh' | 'feedback_txt'
+ * 'feedback_ok' | 'feedback_meh' | 'feedback_txt' |
+ * 'ver_mas' | 'species_perro' | 'species_gato'
  */
 
 const RX = {
@@ -21,7 +22,7 @@ const RX = {
   editar_email: /(cambi(ar|o)\s+)?(mi\s+)?email|correo|mail/i,
   logout: /(cerrar\s+sesión|cerrar\s+sesion|logout|salir|deslogue(ar|arse)|cerrar)$/i,
   confirm_si: /^(si|sí|s|ok|dale|confirmo|acepto|afirmativo)$/i,
-  confirm_no: /^(no|n|cancelar|negativo)$/i, // (dejamos "volver" fuera para usar 'volver' explícito)
+  confirm_no: /^(no|n|cancelar|negativo)$/i,
   volver: /(volver|atrás|atras|anterior|retroceder)$/i,
   promos: /\b(promo(?:s)?|oferta(?:s)?)\b/i,
   buscar: /^(buscar|consulta|producto|recomendar)$/i
@@ -34,12 +35,14 @@ const BUTTON_IDS = new Map([
   ['editar_nombre', 'editar_nombre'],
   ['editar_email', 'editar_email'],
   ['logout', 'logout'],
-  ['cancelar', 'confirm_no'],   // en pantallas de confirmación actuará como "no"
+  ['cancelar', 'confirm_no'],
   ['confirm_yes', 'confirm_si'],
   ['confirm_no', 'confirm_no'],
   ['back', 'volver'],
   ['volver', 'volver'],
-  ['ver_mas', 'ver_mas'], 
+  ['ver_mas', 'ver_mas'],
+  ['perro', 'species_perro'],
+  ['gato',  'species_gato'],
   ['fb_ok',  'feedback_ok'],
   ['fb_meh', 'feedback_meh'],
   ['fb_txt', 'feedback_txt']
@@ -59,7 +62,7 @@ export function detectarIntent(texto = '') {
   if (RX.editar_email.test(t)) return 'editar_email';
   if (RX.editar.test(t)) return 'editar';
   if (RX.logout.test(t)) return 'logout';
-  if (RX.volver.test(t)) return 'volver';         
+  if (RX.volver.test(t)) return 'volver';
   if (RX.confirm_si.test(t)) return 'confirm_si';
   if (RX.confirm_no.test(t)) return 'confirm_no';
   if (RX.promos.test(t)) return 'promos';

@@ -1,4 +1,5 @@
 // src/services/gptService.js
+// ----------------------------------------------------
 import OpenAI from 'openai';
 import 'dotenv/config';
 import { getPromptSystemStrict, getPromptQueryExtract } from './promptTemplate.js';
@@ -17,7 +18,7 @@ export async function responderConGPTStrict(mensajeVet, { productosValidos = [],
 
   if (!openai) {
     if (!productosValidos.length) {
-      return `No encontré ese producto en el catálogo de KrönenVet. ¿Podés darme nombre comercial o marca?`;
+      return 'No encontré ese producto en el catálogo de KrönenVet. ¿Podés darme nombre comercial o marca?';
     }
     const bloques = productosValidos.slice(0, 3).map(p => {
       const precio = p.precio ? ` $${Number(p.precio).toFixed(0)}` : '(consultar)';
@@ -45,9 +46,8 @@ export async function responderConGPTStrict(mensajeVet, { productosValidos = [],
     return completion.choices?.[0]?.message?.content || 'Sin respuesta del modelo.';
   } catch (error) {
     console.error('❌ Error OpenAI:', error);
-    // Fallback multi-producto
     if (!productosValidos.length) {
-      return `No encontré ese producto en el catálogo de KrönenVet. ¿Podés darme nombre comercial o marca?`;
+      return 'No encontré ese producto en el catálogo de KrönenVet. ¿Podés darme nombre comercial o marca?';
     }
     const bloques = productosValidos.slice(0, 3).map(p => {
       const precio = p.precio ? ` $${Number(p.precio).toFixed(0)}` : '(consultar)';
@@ -72,7 +72,6 @@ const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacrit
 /** Heurística offline si no hay API */
 function naiveExtract(query) {
   const toks = norm(query).split(/\s+/).filter(Boolean).filter(w => !STOP.has(w));
-  // Muy simple: si tiene pinta de PA o marca (palabra larga) la ponemos en should
   const should = Array.from(new Set(toks)).slice(0, 12);
   return { must: [], should, negate: [] };
 }
@@ -96,7 +95,6 @@ export async function extraerTerminosBusqueda(query) {
     });
 
     let raw = completion.choices?.[0]?.message?.content || '{}';
-    // Limpieza: por si el modelo agrega markdown
     raw = raw.trim().replace(/^\s*```json\s*|\s*```\s*$/g, '');
     const parsed = JSON.parse(raw);
     const must   = Array.isArray(parsed.must)   ? parsed.must.map(norm)   : [];
