@@ -1,8 +1,8 @@
 // src/services/promptTemplate.js
 
 export function getPromptSystemStrict({
-  productosValidos = [],  // [{ id, nombre, marca, presentacion, precio, promo }]
-  similares = [],         // [{ id, nombre, marca }]
+  productosValidos = [],
+  similares = [],
   ejemploIn = 'Pipetas para gatos',
   ejemploOut = `
 - Producto sugerido: Pipeta X Gatos 2-5kg
@@ -50,16 +50,7 @@ ${similaresJson}
 `.trim();
 }
 
-/**
- * Prompt extractor para enriquecer búsqueda SQL con señales clínicas y comerciales.
- * Salida **EXCLUSIVAMENTE** JSON válido con:
- * {
- *   "must":   [tokens que deberían estar sí o sí si el usuario nombró un compuesto o marca concreta],
- *   "should": [tokens recomendados: especie, forma, indicación, variantes/alias],
- *   "negate": [tokens a excluir si pidió "sin X" o "no X"]
- * }
- * Tokens en minúsculas, sin acentos, 1-3 palabras, máximo 20 items en total.
- */
+/* --------- Extractor de señales para SQL --------- */
 export function getPromptQueryExtract() {
   return `
 Sos un extractor de señales para búsqueda de catálogo veterinario.
@@ -86,69 +77,7 @@ Usuario: "pipeta pulgas 10kg bro..."
 `.trim();
 }
 
-/**
- * 🆕 Prompt extractor de desambiguación rica.
- * Objetivo: Dada la consulta libre del vete, devolvé **sólo JSON** con:
- * {
- *   "species":   "perro" | "gato" | "equino" | "ave" | null,    // usar estos literales si aplica
- *   "form":      "pipeta" | "comprimido" | "inyectable" | "spray" | "shampoo" | null,
- *   "brands":    [ "marca1", "marca2" ],
- *   "actives":   [ "principio activo 1", "principio activo 2" ],
- *   "indications": [ "pulgas", "garrapatas", "anticonvulsivo", ... ],
- *   "weight_hint": "2–5 kg" | "≤10 kg" | "≥20 kg" | "5 kg" | null,  // formatos permitidos
- *   "packs":     [ "x3", "x6", "x12" ],
- *   "negatives": [ "sin corticoide", "sin ivermectina", ... ]
- * }
- *
- * Reglas IMPORTANTES:
- * - Salida EXCLUSIVAMENTE JSON válido (un objeto). Sin comentarios, sin texto adicional.
- * - Minúsculas, sin tildes, salvo nombres propios de marcas si aparecen (podés dejarlos como en la consulta).
- * - "species": si hay mención clara (perro/gato/etc) usá exactamente uno de: "perro" | "gato" | "equino" | "ave".
- *   Si no es claro, dejalo en null.
- * - "form": mapear a "pipeta", "comprimido", "inyectable", "spray" o "shampoo" cuando se infiera; si no, null.
- * - "weight_hint": sólo usar los formatos listados arriba (ej: "2–5 kg", "≤10 kg", "≥20 kg", "5 kg"). Si no hay dato, null.
- * - "packs": si dice "pack", "x6", "paquete de 6", devolver "x6" (normalizado). Si no hay, [].
- * - "negatives": si menciona "sin", "no", "excepto", agregar el término asociado (ej: "sin corticoide").
- * - "actives" e "indications": inferí de la consulta si se nombran (ej: fipronil, ivermectina, anticonvulsivo, condroprotector, otitis).
- *
- * Ejemplos:
- *
- * Usuario: "pipeta para gato 2 a 5 kg, frontline o advantage contra pulgas"
- * {
- *   "species": "gato",
- *   "form": "pipeta",
- *   "brands": ["frontline","advantage"],
- *   "actives": [],
- *   "indications": ["pulgas"],
- *   "weight_hint": "2–5 kg",
- *   "packs": [],
- *   "negatives": []
- * }
- *
- * Usuario: "comprimidos para perro grande x6 sin corticoide"
- * {
- *   "species": "perro",
- *   "form": "comprimido",
- *   "brands": [],
- *   "actives": [],
- *   "indications": [],
- *   "weight_hint": null,
- *   "packs": ["x6"],
- *   "negatives": ["sin corticoide"]
- * }
- *
- * Usuario: "inyeccion ivermectina perro hasta 10kg"
- * {
- *   "species": "perro",
- *   "form": "inyectable",
- *   "brands": [],
- *   "actives": ["ivermectina"],
- *   "indications": [],
- *   "weight_hint": "≤10 kg",
- *   "packs": [],
- *   "negatives": []
- * }
- */
+/* --------- Extractor de desambiguación rica --------- */
 export function getPromptDisambigExtract() {
   return `
 Sos un extractor de desambiguación para catálogo veterinario.
@@ -182,6 +111,6 @@ Usuario: "comprimidos para perro grande x6 sin corticoide"
 {"species":"perro","form":"comprimido","brands":[],"actives":[],"indications":[],"weight_hint":null,"packs":["x6"],"negatives":["sin corticoide"]}
 
 Usuario: "inyeccion ivermectina perro hasta 10kg"
-{"species":"perro","form":"inyectable","brands":[],"actives":["ivermectina"],"indications":[],"weight_hint":"≤10 kg","packs":[],"negatives":[]}
+{"species":"perro","form":"inyectable","brands":[],"actives":["ivermectina"],"indications":[],"weight_hint":"≤ 10 kg","packs":[],"negatives":[]}
 `.trim();
 }

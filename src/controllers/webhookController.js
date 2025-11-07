@@ -1,5 +1,4 @@
 // src/controllers/webhookController.js
-// ----------------------------------------------------
 import 'dotenv/config';
 import {
   sendWhatsAppText,
@@ -25,8 +24,8 @@ import {
 import { WhatsAppSession, Promocion } from '../models/index.js';
 import { t } from '../config/texts.js';
 
-// 🆕 Lista/Detalle de productos
-import { sendProductsList, openProductDetail } from '../services/disambiguationService.js';
+// 🆕 Lista/Detalle de productos + desambiguación
+import { sendProductsList, openProductDetail, handleDisambigAnswer } from '../services/disambiguationService.js';
 
 const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || 'dev-token';
 const MAX_FAILS = Number(process.env.SEARCH_MAX_FAILS || 5);
@@ -34,6 +33,7 @@ const DEBUG = process.env.DEBUG_RECO === '1';
 
 // 🆕 Tel. Administrativo (wa.me requiere solo dígitos)
 const ADMIN_PHONE_DIGITS = '5492216374218';
+
 /* ========== VERIFY (hub.challenge) ========== */
 export function handleWhatsAppVerify(req, res) {
   const mode = req.query['hub.mode'];
@@ -132,64 +132,10 @@ async function handleConsulta(from, nombre, consultaRaw) {
     console.log(`[RECO] consulta="${consulta}" gpt=${JSON.stringify(mergedTokens)}`);
   }
 
-  const { validos = [], similares = [] } = await recomendarDesdeBBDD(consulta, { gpt: mergedTokens });
-
-  if (!validos.length) {
-    const after = await incRecoFail(from);
-    if (DEBUG) console.log(`[RECO][NO_MATCH] failCount=${after?.failCount}`);
-
-    if (after?.failCount === 3) {
-      await setReco(from, { tokens: mergedTokens, lastQuery: consulta });
-      await sendWhatsAppText(from, t('no_match'));
-      await sendWhatsAppButtons(from, t('reco_pedir_especie'), [
-        { id: 'perro', title: t('btn_perro') },
-        { id: 'gato',  title: t('btn_gato') },
-        { id: 'volver', title: t('btn_volver') }
-      ]);
-      return;
-    }
-
-    if ((after?.failCount || 0) >= MAX_FAILS) {
-      const s = await getOrCreateSession(from);
-      const vet = s?.cuit ? await getVetByCuit(s.cuit) : null;
-      const ej = vet?.EjecutivoCuenta;
-      await setReco(from, { tokens: mergedTokens, lastQuery: consulta });
-
-      if (ej) {
-        await sendWhatsAppContacts(from, [{
-          formatted_name: ej.nombre,
-          first_name: ej.nombre?.split(' ')[0],
-          last_name: ej.nombre?.split(' ').slice(1).join(' ') || undefined,
-          org: 'KrönenVet',
-          phones: ej.phone ? [{ phone: ej.phone, type: 'WORK' }] : [],
-          emails: ej.email ? [{ email: ej.email, type: 'WORK' }] : []
-        }]);
-        await sendWhatsAppText(from, t('escala_ejecutivo', { ejecutivo: ej.nombre }));
-      } else {
-        await sendWhatsAppText(from, t('ejecutivo_sin_asignar'));
-      }
-      await resetRecoContext(from);
-      await sendMainList(from, nombre);
-      return;
-    }
-
-    await setReco(from, { tokens: mergedTokens, lastQuery: consulta });
-    await sendWhatsAppText(from, t('no_match'));
-    await sendWhatsAppText(from, t('refinar_tip'));
-    return;
-  }
-
-  // Con resultados → guardar contexto
-  await resetRecoFail(from);
-  await setReco(from, {
-    tokens: mergedTokens,
-    lastQuery: consulta,
-    lastShownIds: validos.map(v => v.id),
-    lastSimilares: similares.map(s => s.id)
-  });
-
-  // 🆕 Cambio: mostrar PRIMERO la lista (aunque haya 1) y no enviar bloque GPT acá.
-  await sendProductsList(from, validos, t('productos_select_header'));
+  // 🚀 Derivamos al motor nuevo (desambiguación iterativa)
+  await setState(from, 'awaiting_consulta');
+  await setReco(from, { tokens: mergedTokens, lastQuery: consulta });
+  await runDisambiguationOrRecommend({ from, nombre, consulta });
 }
 
 /* ========== CONTROLLER PRINCIPAL ========== */
@@ -216,6 +162,12 @@ export async function handleWhatsAppMessage(req, res) {
 
       const normText = sanitizeText(text || '');
       console.log(`[RX] from=${from} state=${session.state} cuit=${session.cuit || '-'} text="${normText.slice(0, 160)}"`);
+
+      // 🆕 Capturar respuestas de desambiguación (ids "disambig:*")
+      if ((normText || '').startsWith('disambig:')) {
+        const ok = await handleDisambigAnswer(from, normText);
+        if (ok) continue;
+      }
 
       // ===== Gating por CUIT + expiración
       const loggedIn = !!(session.cuit && !isExpired(session));
@@ -262,7 +214,7 @@ export async function handleWhatsAppMessage(req, res) {
       const vet = await getVetByCuit(session.cuit);
       const nombre = firstName(vet?.nombre) || '';
 
-      // 🆕 Apertura de ficha por selección "prod:<id>" (en cualquier estado)
+      // 🆕 Apertura de ficha por selección "prod:<id>"
       if ((normText || '').startsWith('prod:')) {
         const pid = Number(String(normText).split(':')[1]);
         const ok = await openProductDetail(from, pid);
@@ -279,7 +231,6 @@ export async function handleWhatsAppMessage(req, res) {
             }]);
             await sendWhatsAppText(from, t('handoff_ejecutivo', { ejecutivo: ej.nombre, telefono: ej.phone || '' }));
           } else {
-            // Deriva a Administración
             await sendWhatsAppContacts(from, [{
               formatted_name: 'Administración KronenVet',
               first_name: 'Administración',
@@ -303,7 +254,7 @@ export async function handleWhatsAppMessage(req, res) {
       const state = await getState(from);
       const pending = await getPending(from);
 
-      // --- Captura de NUEVO NOMBRE
+      // --- Captura NUEVO NOMBRE
       if (state === 'awaiting_nombre_value') {
         const nuevo = String(normText || '').slice(0, 120);
         if (!nuevo) { await sendWhatsAppText(from, t('editar_pedir_nombre')); continue; }
@@ -314,7 +265,7 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // --- Captura de NUEVO EMAIL
+      // --- Captura NUEVO EMAIL
       if (state === 'awaiting_email_value') {
         const email = String(normText || '');
         if (!isValidEmail(email)) { await sendWhatsAppText(from, t('editar_email_invalido')); continue; }
@@ -325,7 +276,7 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // --- Modo búsqueda continuo / refinadores
+      // --- Modo búsqueda
       if (state === 'awaiting_consulta') {
         const intent = detectarIntent(normText) || '';
         if (DEBUG) console.log(`[FLOW] awaiting_consulta intent=${intent}`);
@@ -410,13 +361,12 @@ export async function handleWhatsAppMessage(req, res) {
           continue;
         }
 
-        // Búsqueda real
         console.log(`[FLOW] consulta="${(normText||'').slice(0,80)}"`);
         await handleConsulta(from, nombre, normText);
         continue;
       }
 
-      // --- Confirmaciones (sí/no/volver)
+      // --- Confirmaciones
       if (state === 'confirm') {
         const raw = (normText || '').toLowerCase();
         const intentC = detectarIntent(normText);
@@ -508,7 +458,7 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      /* ====== Intents / Acciones fuera de awaiting_consulta ====== */
+      /* ====== Intents fuera de awaiting_consulta ====== */
       const intent = detectarIntent(normText) || '';
 
       if (intent === 'buscar') {

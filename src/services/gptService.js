@@ -1,5 +1,4 @@
 // src/services/gptService.js
-// ----------------------------------------------------
 import OpenAI from 'openai';
 import 'dotenv/config';
 import { getPromptSystemStrict, getPromptQueryExtract } from './promptTemplate.js';
@@ -65,24 +64,19 @@ export async function responderConGPTStrict(mensajeVet, { productosValidos = [],
 }
 
 /** ---------- EXTRACTOR ---------- */
-// 🆕 ampliamos STOP para ignorar saludos/comandos triviales
 const STOP = new Set([
   'de','para','por','con','sin','y','o','la','el','los','las','un','una','unos','unas','que','del','al','en','a','se',
-  'hola','holaa','holis','buenas','buenos','hey','hi','menu','menú','buscar','volver','opciones','inicio','gracias','chau','adios','adiós','hasta','luego'
+  'hola','holaa','holis','buenas','buenos','hey','hi','menu','menú','buscar','volver','opciones','inicio','gracias','chau','adios','adiós','hasta','luego','cancelar'
 ]);
 
 const norm = (s) => (s || '').toLowerCase().normalize('NFKD').replace(/\p{Diacritic}/gu, '').trim();
 
-/** Heurística offline si no hay API */
 function naiveExtract(query) {
   const toks = norm(query).split(/\s+/).filter(Boolean).filter(w => !STOP.has(w));
   const should = Array.from(new Set(toks)).slice(0, 12);
   return { must: [], should, negate: [] };
 }
 
-/**
- * Devuelve { must:[], should:[], negate:[] } para pasar a la capa SQL/score.
- */
 export async function extraerTerminosBusqueda(query) {
   if (!query || typeof query !== 'string') return { must: [], should: [], negate: [] };
 

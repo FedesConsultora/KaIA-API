@@ -61,7 +61,7 @@ function trunc(s, n = 180) {
 }
 
 export async function sendWhatsAppText(to, body) {
-  console.log(`[TX][text] to=${to} :: ${trunc(body)}`); // 👈 LOG SALIENTE
+  console.log(`[TX][text] to=${to} :: ${trunc(body)}`);
   return wabaFetch({
     messaging_product: 'whatsapp',
     to,
@@ -121,7 +121,7 @@ export async function sendWhatsAppContacts(to, contacts = []) {
   return wabaFetch({
     messaging_product: 'whatsapp',
     to,
-    type: 'contacts',
+        type: 'contacts',
     contacts: mapped,
   });
 }
@@ -144,10 +144,10 @@ export async function sendWhatsAppList(to, body, sections, headerText = null, bu
   };
   if (headerText) interactive.header = { type: 'text', text: String(headerText).slice(0, 60) };
 
-  // Cap de filas
+  // 🚦 Cap estricto de filas (máx. 6)
   const allRows = interactive.action.sections.flatMap(s => s.rows);
-  if (allRows.length > 10) {
-    let remaining = 10;
+  if (allRows.length > 6) {
+    let remaining = 6;
     const newSections = [];
     for (const s of interactive.action.sections) {
       if (!remaining) break;
@@ -159,7 +159,7 @@ export async function sendWhatsAppList(to, body, sections, headerText = null, bu
   }
 
   const rowTitles = interactive.action.sections.flatMap(s => s.rows.map(r => r.title));
-  console.log(`[TX][list] to=${to} :: header="${headerText||''}" :: ${rowTitles.join(' | ')}`);
+  console.log(`[TX][list] to=${to} :: header="${headerText||''}" :: rows=${rowTitles.length} :: ${rowTitles.join(' | ')}`);
   return wabaFetch({
     messaging_product: 'whatsapp',
     to,

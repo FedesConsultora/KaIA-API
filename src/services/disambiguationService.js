@@ -1,5 +1,4 @@
 // src/services/disambiguationService.js
-// ----------------------------------------------------
 import 'dotenv/config';
 import { recomendarDesdeBBDD } from './recommendationService.js';
 import { responderConGPTStrict, extraerTerminosBusqueda } from './gptService.js';
@@ -78,7 +77,6 @@ let openai = null;
 if (process.env.OPENAI_API_KEY) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 async function extraerSenalesRicas(query) {
-  // Fallback heurístico si no hay API
   if (!openai) {
     return {
       species: null,
@@ -134,7 +132,6 @@ function baseKey(p) {
 }
 
 function analyzeVariantDimensions(productos = []) {
-  // Para cada “línea” de producto (ignorando el peso/pack) juntamos variantes
   const groups = new Map();
   for (const p of productos) {
     const key = baseKey(p);
@@ -152,19 +149,20 @@ function analyzeVariantDimensions(productos = []) {
     groups.get(key).push({ id: p.id, peso, pack, marca, forma, p });
   }
 
-  // ¿Cuáles dimensiones tienen variedad real?
-  let needs = { peso: false, pack: false, marca: false, forma: false };
+  const sets = { peso: new Set(), pack: new Set(), marca: new Set(), forma: new Set() };
   for (const variants of groups.values()) {
-    const pesos = new Set(variants.map(v => v.peso).filter(Boolean));
-    const packs = new Set(variants.map(v => v.pack).filter(Boolean));
-    const marcas = new Set(variants.map(v => v.marca).filter(Boolean));
-    const formas = new Set(variants.map(v => v.forma).filter(Boolean));
-    if (pesos.size  >= 2) needs.peso  = true;
-    if (packs.size  >= 2) needs.pack  = true;
-    if (marcas.size >= 2) needs.marca = true;
-    if (formas.size >= 2) needs.forma = true;
+    variants.forEach(v => {
+      if (v.peso)  sets.peso.add(v.peso);
+      if (v.pack)  sets.pack.add(v.pack);
+      if (v.marca) sets.marca.add(v.marca);
+      if (v.forma) sets.forma.add(v.forma);
+    });
   }
-  return { groups, needs };
+
+  let needs = { peso: false, pack: false, marca: false, forma: false };
+  Object.keys(needs).forEach(k => { if (sets[k].size >= 2) needs[k] = true; });
+
+  return { groups, needs, sets };
 }
 
 function pickFirstQuestion({ signals, tokens, productos, consulta }) {
@@ -172,7 +170,7 @@ function pickFirstQuestion({ signals, tokens, productos, consulta }) {
   const forma   = signals.form || formFromSignals(consulta, tokens);
   const isPipeta = looksLikePipeta(consulta, tokens) || forma === 'pipeta';
 
-  const { needs } = analyzeVariantDimensions(productos);
+  const { needs, sets } = analyzeVariantDimensions(productos);
 
   // Prioridad de preguntas
   if (!especie) {
@@ -192,10 +190,6 @@ function pickFirstQuestion({ signals, tokens, productos, consulta }) {
     return { type: 'form', title: t('desambig_form_header'), body: t('desambig_form_body') };
   }
 
-  if (signals.actives && signals.actives.length >= 2) {
-    return { type: 'active', title: t('desambig_active_header'), body: t('desambig_active_body') };
-  }
-
   if (needs.pack && (!signals.packs || !signals.packs.length)) {
     return { type: 'pack', title: t('desambig_pack_header'), body: t('desambig_pack_body') };
   }
@@ -203,6 +197,17 @@ function pickFirstQuestion({ signals, tokens, productos, consulta }) {
   if (needs.marca && (!signals.brands || !signals.brands.length)) {
     return { type: 'brand', title: t('desambig_brand_header'), body: t('desambig_brand_body') };
   }
+
+  // Si no hay necesidad evidente, sugerimos por diversidad (fallback)
+  const diversity = [
+    { key: 'peso',  size: sets.peso.size,  type: 'weight', title: t('desambig_peso_header'),  body: (especie === 'gato') ? t('desambig_peso_body_gato') : t('desambig_peso_body_perro') },
+    { key: 'marca', size: sets.marca.size, type: 'brand',  title: t('desambig_brand_header'), body: t('desambig_brand_body') },
+    { key: 'forma', size: sets.forma.size, type: 'form',   title: t('desambig_form_header'),  body: t('desambig_form_body') },
+    { key: 'pack',  size: sets.pack.size,  type: 'pack',   title: t('desambig_pack_header'),  body: t('desambig_pack_body') },
+  ].sort((a,b) => b.size - a.size);
+
+  const best = diversity.find(d => d.size >= 2);
+  if (best) return { type: best.type, title: best.title, body: best.body };
 
   return null;
 }
@@ -222,15 +227,16 @@ function toDetailBlock(p) {
 // ====== Lista interactiva de productos (export) ======
 export async function sendProductsList(from, productos, header = null) {
   if (!productos?.length) return;
-  const rows = productos.map(p => ({
+  const rows = productos.slice(0, 6).map(p => ({
     id: `prod:${p.id}`,
     title: String(p.nombre || 'Producto').slice(0, 24),
     description: [p.marca, p.presentacion, p.promo?.activa ? 'Promo' : ''].filter(Boolean).join(' • ').slice(0, 60)
   }));
+  console.log(`[RECO][LIST] to=${from} rows=${rows.length}`);
   await sendWhatsAppList(
     from,
     t('productos_list_body'),
-    [{ title: t('productos_list_title'), rows: rows.slice(0, 10) }],
+    [{ title: t('productos_list_title'), rows }],
     header || t('productos_select_header'),
     t('btn_elegi')
   );
@@ -307,7 +313,6 @@ export async function openProductDetail(from, productId) {
   await sendWhatsAppText(from, t('producto_ficha_header'));
   await sendWhatsAppText(from, detail);
 
-  // (Opcional) bloque GPT de recomendación “lindo”
   try {
     const g = {
       id: p.id,
@@ -325,9 +330,7 @@ export async function openProductDetail(from, productId) {
     if (texto && texto.trim()) {
       await sendWhatsAppText(from, texto.trim());
     }
-  } catch (_) {
-    // si GPT falla, seguimos sin cortar el flujo
-  }
+  } catch (_) {}
 
   return true;
 }
@@ -347,6 +350,9 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
 
   // Buscar
   const { validos = [], similares = [] } = await recomendarDesdeBBDD(consulta, { gpt: mergedTokens, signals });
+  const candidatos = [...validos, ...similares];
+
+  console.log(`[RECO][ITER] query="${consulta}" -> validos=${validos.length} similares=${similares.length} total=${candidatos.length}`);
 
   if (!validos.length) {
     const after = await incRecoFail(from);
@@ -376,35 +382,40 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
   });
 
   // ¿Hace falta desambiguar?
-  const candidatos = [...validos, ...similares];
-  const question = pickFirstQuestion({ signals, tokens: mergedTokens, productos: candidatos, consulta });
+  // Si hay más de 6 candidatos o GPT sugiere, preguntar.
+  let question = null;
+  if (candidatos.length > 6) {
+    question = pickFirstQuestion({ signals, tokens: mergedTokens, productos: candidatos, consulta });
+  } else {
+    question = pickFirstQuestion({ signals, tokens: mergedTokens, productos: candidatos, consulta });
+  }
+
   if (question) {
-    const rows = await (async () => {
-      // reutilizamos la lógica de variant options para armar filas
-      const { groups } = analyzeVariantDimensions(candidatos);
-      const opts = new Map();
-      for (const variants of groups.values()) {
-        for (const v of variants) {
-          if (question.type === 'weight' && v.peso) opts.set(v.peso, true);
-          if (question.type === 'pack'  && v.pack) opts.set(v.pack, true);
-          if (question.type === 'brand' && v.marca) opts.set(v.marca, true);
-          if (question.type === 'form'  && v.forma) opts.set(v.forma, true);
-        }
+    const { groups } = analyzeVariantDimensions(candidatos);
+    const opts = new Map();
+    for (const variants of groups.values()) {
+      for (const v of variants) {
+        if (question.type === 'weight' && v.peso) opts.set(v.peso, true);
+        if (question.type === 'pack'  && v.pack) opts.set(v.pack, true);
+        if (question.type === 'brand' && v.marca) opts.set(v.marca, true);
+        if (question.type === 'form'  && v.forma) opts.set(v.forma, true);
       }
-      if (question.type === 'species') {
-        opts.set('gato', true); opts.set('perro', true);
-      }
-      if (question.type === 'active') {
-        opts.set('fipronil', true);
-        opts.set('imidacloprid', true);
-        opts.set('permethrin', true);
-      }
-      return [...opts.keys()].slice(0, 10).map(val => ({
-        id: `disambig:${question.type}:${String(val)}`,
-        title: String(val).slice(0, 24),
-        description: undefined
-      }));
-    })();
+    }
+    if (question.type === 'species') {
+      opts.set('gato', true); opts.set('perro', true);
+    }
+    if (question.type === 'active') {
+      opts.set('fipronil', true);
+      opts.set('imidacloprid', true);
+      opts.set('permethrin', true);
+    }
+    const rows = [...opts.keys()].slice(0, 6).map(val => ({
+      id: `disambig:${question.type}:${String(val)}`,
+      title: String(val).slice(0, 24),
+      description: undefined
+    }));
+
+    console.log(`[RECO][Q] type=${question.type} rows=${rows.length}`);
 
     await setState(from, 'awaiting_disambig');
     await setPending(from, {
@@ -427,15 +438,8 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     return true;
   }
 
-  // ➡️ Cambio pedido: mostrar PRIMERO la lista interactiva (aunque haya 1)
+  // Lista final (siempre primero). Preferimos 3–4, tope 6.
   await sendProductsList(from, validos, t('productos_select_header'));
-
-  // (Opcional) si querés además tirar el bloque GPT “lindo” en paralelo, descomentá:
-  // try {
-  //   const respuesta = await responderConGPTStrict(consulta, { productosValidos: validos, similares });
-  //   if (respuesta?.trim()) await sendWhatsAppText(from, respuesta.trim());
-  // } catch (_) {}
-
   return true;
 }
 
@@ -481,6 +485,8 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
     should: Array.from(new Set([...(prev?.tokens?.should || []), ...extraShould])),
     negate: Array.from(new Set([...(prev?.tokens?.negate || [])]))
   };
+
+  console.log(`[RECO][ANS] type=${type} value="${value}"`);
 
   await setReco(from, {
     tokens: mergedTokens,
