@@ -1,251 +1,157 @@
-// src/services/waSessionService.js
-import { WhatsAppSession } from '../models/index.js';
+// src/services/whatsappService.js
+import 'dotenv/config';
 
-const TTL_DAYS = Number(
-  process.env.CUIT_VERIFY_TTL_DAYS ||
-  process.env.WHATSAPP_SESSION_TTL_DAYS ||
-  60
-);
+const API_VERSION = process.env.WHATSAPP_API_VERSION || 'v19.0';
+const PHONE_NUMBER_ID = process.env.WHATSAPP_NUMBER_ID;
+const TOKEN = process.env.WHATSAPP_TOKEN;
+const BASE_URL = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
 
-// ⏱️ inactividad para volver al menú (12h por defecto)
-const MENU_IDLE_MS = Number(process.env.MENU_IDLE_MS || (12 * 60 * 60 * 1000));
-// ⏱️ inactividad para ping de feedback (15m por defecto)
-const FEEDBACK_IDLE_MS = Number(process.env.FEEDBACK_IDLE_MS || (15 * 60 * 1000));
-
-/* ===== Señales por defecto (no tocar) ===== */
-const DEF_SIGNALS = {
-  species: null,
-  form: null,
-  brands: [],
-  actives: [],
-  indications: [],
-  weight_hint: null,
-  packs: [],
-  negatives: []
-};
-
-/* ===== Reco por defecto (hard reset real) ===== */
-export const DEF_RECO = {
-  failCount: 0,
-  tokens: { must: [], should: [], negate: [] },
-  lastQuery: '',
-  lastSimilares: [],
-  lastShownIds: [],
-  signals: { ...DEF_SIGNALS },
-  asked: [],
-  hops: 0,
-  lastInteractionAt: null
-};
-
-export async function getOrCreateSession(phone) {
-  let s = await WhatsAppSession.findOne({ where: { phone } });
-  if (!s) s = await WhatsAppSession.create({ phone, state: 'awaiting_cuit' });
-  return s;
+function trimLen(str, max) {
+  if (!str) return '';
+  const s = String(str);
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }
 
-export function isExpired(session) {
-  return !!(session?.expiresAt && new Date(session.expiresAt) < new Date());
-}
-
-export async function upsertVerified(phone, cuit) {
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + TTL_DAYS);
-
-  const [row] = await WhatsAppSession.upsert({
-    phone,
-    cuit: String(cuit),
-    verifiedAt: new Date(),
-    expiresAt,
-    state: 'verified',
-    pending: null,
-    feedbackLastPromptAt: null,
-    feedbackLastResponseAt: null
-  }, { returning: true });
-
-  return row;
-}
-
-export async function ensureExpiry(session) {
-  if (session?.state === 'verified' && !session.expiresAt) {
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + TTL_DAYS);
-    await WhatsAppSession.update({ expiresAt }, { where: { id: session.id } });
-    session.expiresAt = expiresAt;
+async function waFetch(payload, label = 'send') {
+  if (!PHONE_NUMBER_ID || !TOKEN) {
+    console.warn('⚠️ Falta configurar WHATSAPP_NUMBER_ID o WHATSAPP_TOKEN');
+    console.debug(`[WA][DRYRUN][${label}]`, JSON.stringify(payload, null, 2));
+    return null;
   }
-}
 
-export async function bumpExpiry(phone) {
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + TTL_DAYS);
-  await WhatsAppSession.update({ expiresAt }, { where: { phone } });
-}
+  const res = await fetch(BASE_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
 
-export async function setState(phone, state) {
-  await WhatsAppSession.update({ state }, { where: { phone } });
-}
+  let data = {};
+  try { data = await res.json(); } catch (_) {}
 
-export async function getState(phone) {
-  const s = await WhatsAppSession.findOne({ where: { phone } });
-  return s?.state || 'awaiting_cuit';
-}
-
-export async function isLogged(phone) {
-  const s = await WhatsAppSession.findOne({ where: { phone } });
-  return !!(s && s.cuit && !isExpired(s));
-}
-
-/* ===== PENDING ===== */
-export async function setPending(phone, pending) {
-  const s = await WhatsAppSession.findOne({ where: { phone } });
-  const cur = s?.pending || {};
-  const next = mergePendingObjects(cur, pending);
-  await WhatsAppSession.update({ pending: next }, { where: { phone } });
-}
-
-export async function getPending(phone) {
-  const s = await WhatsAppSession.findOne({ where: { phone } });
-  return s?.pending || null;
-}
-
-export async function clearPending(phone) {
-  await WhatsAppSession.update({ pending: null }, { where: { phone } });
-}
-
-export async function logout(phone) {
-  await WhatsAppSession.update(
-    { state: 'awaiting_cuit', cuit: null, verifiedAt: null, expiresAt: null, pending: null },
-    { where: { phone } }
-  );
-}
-
-/** Marca el último mensaje real del usuario */
-export async function bumpLastInteraction(phone) {
-  const s = await WhatsAppSession.findOne({ where: { phone } });
-  const cur = s?.pending || {};
-  const reco = { ...(cur.reco || {}), lastInteractionAt: new Date().toISOString() };
-  await WhatsAppSession.update({ pending: { ...cur, reco } }, { where: { phone } });
-}
-
-function getLastInteractionFromSession(session) {
-  return session?.pending?.reco?.lastInteractionAt || null;
-}
-
-/* ===== Inactividad → menú ===== */
-export function shouldResetToMenu(session) {
-  const lastIso = getLastInteractionFromSession(session);
-  const base = lastIso ? new Date(lastIso) : new Date(session?.updatedAt || session?.createdAt || Date.now());
-  return (Date.now() - base.getTime()) > MENU_IDLE_MS;
-}
-
-/* ===== Feedback tras inactividad ===== */
-export function shouldPromptFeedback(session) {
-  if (session?.feedbackLastPromptAt) return false;
-  const lastIso = getLastInteractionFromSession(session);
-  const base = lastIso ? new Date(lastIso) : new Date(session?.updatedAt || session?.createdAt || Date.now());
-  return (Date.now() - base.getTime()) > FEEDBACK_IDLE_MS;
-}
-
-export async function markFeedbackPrompted(phone) {
-  await WhatsAppSession.update({ feedbackLastPromptAt: new Date() }, { where: { phone } });
-}
-
-/* ===== Contexto de recomendación ===== */
-export async function getReco(phone) {
-  const p = await getPending(phone);
-  const def = { ...DEF_RECO };
-  return (p && p.reco) ? deepMergeReco(def, p.reco) : def;
-}
-
-/** 🔥 HARD-REPLACE del reco (no merge). Úsalo para resets o búsquedas nuevas. */
-export async function overwriteReco(phone, nextReco = DEF_RECO) {
-  const s = await WhatsAppSession.findOne({ where: { phone } });
-  const cur = s?.pending || {};
-  const next = { ...cur, reco: { ...nextReco } };
-  await WhatsAppSession.update({ pending: next }, { where: { phone } });
-  return nextReco;
-}
-
-/** Merge (union) para refinamientos */
-export async function setReco(phone, patch) {
-  const cur = await getReco(phone);
-  const next = deepMergeReco(cur, patch);
-  // usamos setPending (que mergea pending pero ya le pasamos reco mergeado)
-  const s = await WhatsAppSession.findOne({ where: { phone } });
-  const curPending = s?.pending || {};
-  await WhatsAppSession.update({ pending: { ...curPending, reco: next } }, { where: { phone } });
-  return next;
-}
-
-export async function incRecoFail(phone) {
-  const cur = await getReco(phone);
-  return setReco(phone, { failCount: (cur.failCount || 0) + 1 });
-}
-
-export async function resetRecoFail(phone) {
-  const cur = await getReco(phone);
-  if (!cur.failCount) return cur;
-  return setReco(phone, { failCount: 0 });
-}
-
-/* ===== Utils ===== */
-function mergePendingObjects(a, b) {
-  const out = { ...(a || {}) , ...(b || {}) };
-  if (a?.reco || b?.reco) {
-    out.reco = deepMergeReco(a?.reco || {}, b?.reco || {});
+  if (!res.ok) {
+    console.error(`[WA][ERR][${label}]`, { status: res.status, data });
+    throw new Error(data?.error?.message || `WA API error ${res.status}`);
   }
-  return out;
+
+  return data;
 }
 
-function dedup(arr) {
-  return Array.from(new Set((arr || []).filter(Boolean)));
-}
-
-function mergeSignals(a = {}, b = {}) {
-  const A = { ...DEF_SIGNALS, ...(a || {}) };
-  const B = { ...DEF_SIGNALS, ...(b || {}) };
-  return {
-    species: B.species ?? A.species ?? null,
-    form:    B.form    ?? A.form    ?? null,
-    brands:  dedup([...(A.brands||[]), ...(B.brands||[])]),
-    actives: dedup([...(A.actives||[]), ...(B.actives||[])]),
-    indications: dedup([...(A.indications||[]), ...(B.indications||[])]),
-    weight_hint: B.weight_hint ?? A.weight_hint ?? null,
-    packs:   dedup([...(A.packs||[]), ...(B.packs||[])]),
-    negatives: dedup([...(A.negatives||[]), ...(B.negatives||[])])
+/**
+ * Texto simple
+ * @param {string} to - Número E.164 (ej: "5492211234567")
+ * @param {string} text
+ */
+export async function sendWhatsAppText(to, text) {
+  const body = trimLen(text || '', 4096);
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'text',
+    text: { body }
   };
+  console.log(`[TX][text] to=${to} :: ${body.slice(0, 160)}`);
+  return waFetch(payload, 'text');
 }
 
-function mergeTokenSets(a = {}, b = {}) {
-  const mergeArr = (x = [], y = []) => Array.from(new Set([...(x||[]), ...(y||[])])).filter(Boolean);
-  return {
-    must:   mergeArr(a.must,   b.must),
-    should: mergeArr(a.should, b.should),
-    negate: mergeArr(a.negate, b.negate)
+/**
+ * Lista interactiva (List message)
+ * @param {string} to
+ * @param {string} bodyText - cuerpo del mensaje
+ * @param {Array<{title:string, rows:Array<{id:string,title:string,description?:string}>}>} sections
+ * @param {string} headerText - cabecera visible del listado
+ * @param {string} buttonText - texto del botón (ej: "Elegí")
+ */
+export async function sendWhatsAppList(to, bodyText, sections = [], headerText = '', buttonText = 'Elegí') {
+  // saneo longitudes máximas recomendadas por la API
+  const safeSections = (sections || []).map(sec => ({
+    title: trimLen(sec?.title || '', 24),
+    rows: (sec?.rows || []).map(r => ({
+      id: String(r.id),
+      title: trimLen(r.title || 'Opción', 24),
+      description: r.description ? trimLen(r.description, 72) : undefined
+    }))
+  }));
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      header: headerText ? { type: 'text', text: trimLen(headerText, 60) } : undefined,
+      body: { text: trimLen(bodyText || '', 1024) },
+      action: {
+        button: trimLen(buttonText || 'Elegí', 20),
+        sections: safeSections
+      }
+    }
   };
+
+  console.log(`[TX][list] to=${to} :: header="${headerText || ''}" :: rows=${safeSections.reduce((n,s)=>n+(s.rows?.length||0),0)}`);
+  return waFetch(payload, 'list');
 }
 
-function deepMergeReco(a = {}, b = {}) {
-  return {
-    ...a,
-    ...b,
-    tokens: mergeTokenSets(a.tokens || {}, b.tokens || {}),
-    signals: mergeSignals(a.signals || {}, b.signals || {}),
-    asked: dedup([...(a.asked||[]), ...(b.asked||[])]),
-    hops: Math.max(a.hops || 0, b.hops || 0)
+/**
+ * Botones interactivos (3 max)
+ * @param {string} to
+ * @param {string} bodyText
+ * @param {Array<{id:string,title:string}>} buttons
+ */
+export async function sendWhatsAppButtons(to, bodyText, buttons = []) {
+  const safeButtons = (buttons || []).slice(0, 3).map(b => ({
+    type: 'reply',
+    reply: {
+      id: String(b.id),
+      title: trimLen(b.title || 'Elegir', 20)
+    }
+  }));
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: trimLen(bodyText || '', 1024) },
+      action: { buttons: safeButtons }
+    }
   };
+
+  console.log(`[TX][buttons] to=${to} :: ${safeButtons.map(b => b.reply.title).join(' | ')}`);
+  return waFetch(payload, 'buttons');
 }
 
-/** Vuelve al menú y limpia pending sin cerrar sesión */
-export async function resetToMenu(phone) {
-  await WhatsAppSession.update(
-    { state: 'awaiting_consulta', pending: null },
-    { where: { phone } }
-  );
-}
+/**
+ * Enviar contactos (card de contacto)
+ * @param {string} to
+ * @param {Array<{formatted_name:string, first_name:string, last_name?:string, org?:string, phones?:Array<{phone:string,type?:string}>, emails?:Array<{email:string,type?:string}>}>} contacts
+ */
+export async function sendWhatsAppContacts(to, contacts = []) {
+  const safeContacts = (contacts || []).map(c => ({
+    name: {
+      formatted_name: trimLen(c.formatted_name || `${c.first_name || ''} ${c.last_name || ''}`.trim(), 128),
+      first_name: trimLen(c.first_name || '', 60),
+      last_name: c.last_name ? trimLen(c.last_name, 60) : undefined
+    },
+    org: c.org ? { company: trimLen(c.org, 60) } : undefined,
+    phones: (c.phones || []).map(p => ({ phone: String(p.phone), type: p.type || 'CELL' })),
+    emails: (c.emails || []).map(e => ({ email: String(e.email), type: e.type || 'WORK' }))
+  }));
 
-/* === Helper público para borrar contexto (antes no funcionaba) === */
-export async function resetRecoContext(phone) {
-  await overwriteReco(phone, { ...DEF_RECO });
-}
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'contacts',
+    contacts: safeContacts
+  };
 
-export { DEF_SIGNALS };
+  console.log(`[TX][contacts] to=${to} :: contacts=${safeContacts.length}`);
+  return waFetch(payload, 'contacts');
+}

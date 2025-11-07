@@ -1,17 +1,42 @@
 // src/services/waSessionService.js
 import { WhatsAppSession } from '../models/index.js';
 
+/* ================== CONFIG ================== */
 const TTL_DAYS = Number(
   process.env.CUIT_VERIFY_TTL_DAYS ||
   process.env.WHATSAPP_SESSION_TTL_DAYS ||
   60
 );
-
-// ⏱️ inactividad para volver al menú (12h por defecto)
+// ⏱️ Inactividad para volver al menú (12h por defecto)
 const MENU_IDLE_MS = Number(process.env.MENU_IDLE_MS || (12 * 60 * 60 * 1000));
-// ⏱️ inactividad para ping de feedback (15m por defecto)
+// ⏱️ Inactividad para ping de feedback (15m por defecto)
 const FEEDBACK_IDLE_MS = Number(process.env.FEEDBACK_IDLE_MS || (15 * 60 * 1000));
 
+/* ================== RECO DEFAULTS ================== */
+export const DEF_SIGNALS = {
+  species: null,
+  form: null,
+  brands: [],
+  actives: [],
+  indications: [],
+  weight_hint: null,
+  packs: [],
+  negatives: []
+};
+
+export const DEF_RECO = {
+  failCount: 0,
+  tokens: { must: [], should: [], negate: [] },
+  lastQuery: '',
+  lastSimilares: [],
+  lastShownIds: [],
+  signals: { ...DEF_SIGNALS },
+  asked: [],
+  hops: 0,
+  lastInteractionAt: null
+};
+
+/* ================== SESSION HELPERS ================== */
 export async function getOrCreateSession(phone) {
   let s = await WhatsAppSession.findOne({ where: { phone } });
   if (!s) s = await WhatsAppSession.create({ phone, state: 'awaiting_cuit' });
@@ -69,6 +94,7 @@ export async function isLogged(phone) {
   return !!(s && s.cuit && !isExpired(s));
 }
 
+/* ================== PENDING ================== */
 export async function setPending(phone, pending) {
   const s = await WhatsAppSession.findOne({ where: { phone } });
   const cur = s?.pending || {};
@@ -85,7 +111,7 @@ export async function clearPending(phone) {
   await WhatsAppSession.update({ pending: null }, { where: { phone } });
 }
 
-/** 🆕 Limpia SOLO una clave de pending (ej. 'disambig'), preservando pending.reco */
+/** Limpia SOLO una clave de pending (ej. 'disambig'), preservando pending.reco */
 export async function clearPendingKey(phone, key) {
   const s = await WhatsAppSession.findOne({ where: { phone } });
   const cur = s?.pending || null;
@@ -102,7 +128,7 @@ export async function logout(phone) {
   );
 }
 
-/** Marca el último mensaje real del usuario */
+/** Marca el último mensaje real del usuario (para inactividad/feedback) */
 export async function bumpLastInteraction(phone) {
   const s = await WhatsAppSession.findOne({ where: { phone } });
   const cur = s?.pending || {};
@@ -114,14 +140,13 @@ function getLastInteractionFromSession(session) {
   return session?.pending?.reco?.lastInteractionAt || null;
 }
 
-/* ===== Inactividad → menú ===== */
+/* ================== IDLENESS / FEEDBACK ================== */
 export function shouldResetToMenu(session) {
   const lastIso = getLastInteractionFromSession(session);
   const base = lastIso ? new Date(lastIso) : new Date(session?.updatedAt || session?.createdAt || Date.now());
   return (Date.now() - base.getTime()) > MENU_IDLE_MS;
 }
 
-/* ===== Feedback tras inactividad ===== */
 export function shouldPromptFeedback(session) {
   if (session?.feedbackLastPromptAt) return false;
   const lastIso = getLastInteractionFromSession(session);
@@ -133,38 +158,29 @@ export async function markFeedbackPrompted(phone) {
   await WhatsAppSession.update({ feedbackLastPromptAt: new Date() }, { where: { phone } });
 }
 
-/* ===== Contexto de recomendación ===== */
-const DEF_SIGNALS = {
-  species: null,
-  form: null,
-  brands: [],
-  actives: [],
-  indications: [],
-  weight_hint: null,
-  packs: [],
-  negatives: []
-};
-
+/* ================== RECO CONTEXTO ================== */
 export async function getReco(phone) {
   const p = await getPending(phone);
-  const def = {
-    failCount: 0,
-    tokens: { must: [], should: [], negate: [] },
-    lastQuery: '',
-    lastSimilares: [],
-    lastShownIds: [],
-    signals: { ...DEF_SIGNALS },
-    asked: [],
-    hops: 0,
-    lastInteractionAt: null
-  };
+  const def = { ...DEF_RECO };
   return (p && p.reco) ? deepMergeReco(def, p.reco) : def;
 }
 
+/** 🔥 HARD-REPLACE del reco (no merge). Úsalo para resets o búsquedas nuevas. */
+export async function overwriteReco(phone, nextReco = DEF_RECO) {
+  const s = await WhatsAppSession.findOne({ where: { phone } });
+  const cur = s?.pending || {};
+  const next = { ...cur, reco: { ...nextReco } };
+  await WhatsAppSession.update({ pending: next }, { where: { phone } });
+  return nextReco;
+}
+
+/** Merge (union) para refinamientos */
 export async function setReco(phone, patch) {
-  const cur = await getReco(phone);
+  const cur = await getReco(fromSafe(phone));
   const next = deepMergeReco(cur, patch);
-  await setPending(phone, { reco: next });
+  const s = await WhatsAppSession.findOne({ where: { phone } });
+  const curPending = s?.pending || {};
+  await WhatsAppSession.update({ pending: { ...curPending, reco: next } }, { where: { phone } });
   return next;
 }
 
@@ -179,9 +195,24 @@ export async function resetRecoFail(phone) {
   return setReco(phone, { failCount: 0 });
 }
 
-/* ===== Utils ===== */
+/** Vuelve al menú y limpia pending sin cerrar sesión */
+export async function resetToMenu(phone) {
+  await WhatsAppSession.update(
+    { state: 'awaiting_consulta', pending: null },
+    { where: { phone } }
+  );
+}
+
+/** Helper público para borrar contexto de recomendación */
+export async function resetRecoContext(phone) {
+  await overwriteReco(phone, { ...DEF_RECO });
+}
+
+/* ================== UTILS ================== */
+function fromSafe(v) { return String(v); }
+
 function mergePendingObjects(a, b) {
-  const out = { ...(a || {}) , ...(b || {}) };
+  const out = { ...(a || {}), ...(b || {}) };
   if (a?.reco || b?.reco) {
     out.reco = deepMergeReco(a?.reco || {}, b?.reco || {});
   }
@@ -225,16 +256,4 @@ function deepMergeReco(a = {}, b = {}) {
     asked: dedup([...(a.asked||[]), ...(b.asked||[])]),
     hops: Math.max(a.hops || 0, b.hops || 0)
   };
-}
-
-/**
- * Resetea la sesión para volver al menú sin cerrar sesión:
- * - state → 'awaiting_consulta'
- * - pending → null
- */
-export async function resetToMenu(phone) {
-  await WhatsAppSession.update(
-    { state: 'awaiting_consulta', pending: null },
-    { where: { phone } }
-  );
 }
