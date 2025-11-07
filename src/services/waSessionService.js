@@ -92,7 +92,7 @@ export async function logout(phone) {
   );
 }
 
-/** Marca el último mensaje real del usuario (sin migraciones: lo guardamos en pending.reco) */
+/** Marca el último mensaje real del usuario */
 export async function bumpLastInteraction(phone) {
   const s = await WhatsAppSession.findOne({ where: { phone } });
   const cur = s?.pending || {};
@@ -124,6 +124,17 @@ export async function markFeedbackPrompted(phone) {
 }
 
 /* ===== Contexto de recomendación ===== */
+const DEF_SIGNALS = {
+  species: null,
+  form: null,
+  brands: [],
+  actives: [],
+  indications: [],
+  weight_hint: null,
+  packs: [],
+  negatives: []
+};
+
 export async function getReco(phone) {
   const p = await getPending(phone);
   const def = {
@@ -132,18 +143,17 @@ export async function getReco(phone) {
     lastQuery: '',
     lastSimilares: [],
     lastShownIds: [],
+    signals: { ...DEF_SIGNALS },
+    asked: [],
+    hops: 0,
     lastInteractionAt: null
   };
-  return (p && p.reco) ? { ...def, ...p.reco } : def;
+  return (p && p.reco) ? deepMergeReco(def, p.reco) : def;
 }
 
 export async function setReco(phone, patch) {
   const cur = await getReco(phone);
-  const next = {
-    ...cur,
-    ...patch,
-    tokens: mergeTokenSets(cur.tokens, patch.tokens || {})
-  };
+  const next = deepMergeReco(cur, patch);
   await setPending(phone, { reco: next });
   return next;
 }
@@ -163,13 +173,28 @@ export async function resetRecoFail(phone) {
 function mergePendingObjects(a, b) {
   const out = { ...(a || {}) , ...(b || {}) };
   if (a?.reco || b?.reco) {
-    out.reco = {
-      ...(a?.reco || {}),
-      ...(b?.reco || {}),
-      tokens: mergeTokenSets(a?.reco?.tokens || {}, b?.reco?.tokens || {})
-    };
+    out.reco = deepMergeReco(a?.reco || {}, b?.reco || {});
   }
   return out;
+}
+
+function dedup(arr) {
+  return Array.from(new Set((arr || []).filter(Boolean)));
+}
+
+function mergeSignals(a = {}, b = {}) {
+  const A = { ...DEF_SIGNALS, ...(a || {}) };
+  const B = { ...DEF_SIGNALS, ...(b || {}) };
+  return {
+    species: B.species ?? A.species ?? null,
+    form:    B.form    ?? A.form    ?? null,
+    brands:  dedup([...(A.brands||[]), ...(B.brands||[])]),
+    actives: dedup([...(A.actives||[]), ...(B.actives||[])]),
+    indications: dedup([...(A.indications||[]), ...(B.indications||[])]),
+    weight_hint: B.weight_hint ?? A.weight_hint ?? null,
+    packs:   dedup([...(A.packs||[]), ...(B.packs||[])]),
+    negatives: dedup([...(A.negatives||[]), ...(B.negatives||[])])
+  };
 }
 
 function mergeTokenSets(a = {}, b = {}) {
@@ -181,11 +206,21 @@ function mergeTokenSets(a = {}, b = {}) {
   };
 }
 
+function deepMergeReco(a = {}, b = {}) {
+  return {
+    ...a,
+    ...b,
+    tokens: mergeTokenSets(a.tokens || {}, b.tokens || {}),
+    signals: mergeSignals(a.signals || {}, b.signals || {}),
+    asked: dedup([...(a.asked||[]), ...(b.asked||[])]),
+    hops: Math.max(a.hops || 0, b.hops || 0)
+  };
+}
+
 /**
  * Resetea la sesión para volver al menú sin cerrar sesión:
  * - state → 'awaiting_consulta'
- * - pending → null (limpia confirmaciones y contexto de reco)
- *   (el contexto de reco se re-crea con defaults vía getReco cuando haga falta)
+ * - pending → null
  */
 export async function resetToMenu(phone) {
   await WhatsAppSession.update(

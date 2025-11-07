@@ -23,6 +23,10 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   refinar_follow:
     'Podés seguir afinando: sumá marca, presentación, especie o compuesto activo. Si preferís, escribí "menú".',
 
+  // 🆕 Mensajes de listado “completo” o truncado por límite de WhatsApp
+  mostrando_todos: 'Encontré {total} producto(s). Te muestro todos:',
+  muchos_resultados: 'Encontré {total} productos. WhatsApp permite listar hasta {max} por mensaje. Te muestro {shown}. Podés refinar por *marca* (ej. “marca X”), *presentación* (pipeta/comprimido) o *peso*.',
+
   reco_pedir_especie: '¿Para qué especie lo buscás?',
 
   // ====== Desambiguación ======

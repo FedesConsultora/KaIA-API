@@ -8,6 +8,11 @@ const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 if (!WABA_TOKEN) console.warn('⚠️ Falta WHATSAPP_ACCESS_TOKEN');
 if (!PHONE_ID) console.warn('⚠️ Falta WHATSAPP_PHONE_NUMBER_ID');
 
+// 🔧 Config de paginado para List Messages (WhatsApp limita filas por sección y secciones)
+const LIST_ROWS_PER_SECTION = Number(process.env.RECO_LIST_ROWS_PER_SECTION || 10); // máx recomendado por WhatsApp
+const LIST_MAX_SECTIONS    = Number(process.env.RECO_LIST_MAX_SECTIONS    || 10); // máx recomendado por WhatsApp
+const LIST_GLOBAL_MAX      = Number(process.env.RECO_LIST_GLOBAL_MAX      || (LIST_ROWS_PER_SECTION * LIST_MAX_SECTIONS));
+
 function buildUrl(path) {
   return `${WABA_URL.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
 }
@@ -121,45 +126,58 @@ export async function sendWhatsAppContacts(to, contacts = []) {
   return wabaFetch({
     messaging_product: 'whatsapp',
     to,
-        type: 'contacts',
+    type: 'contacts',
     contacts: mapped,
   });
 }
 
+/**
+ * Envia una lista interactiva paginada en secciones de hasta LIST_ROWS_PER_SECTION filas.
+ * Hasta LIST_MAX_SECTIONS secciones → máximo LIST_GLOBAL_MAX filas por mensaje (limitación WhatsApp).
+ * Si el total excede LIST_GLOBAL_MAX, se recorta a ese máximo.
+ */
 export async function sendWhatsAppList(to, body, sections, headerText = null, buttonText = 'Elegí') {
+  // Aplano todas las filas manteniendo el id/title/description
+  const allRows = [];
+  for (const sec of (sections || [])) {
+    const rows = (sec?.rows || []).map(r => ({
+      id: String(r.id),
+      title: String(r.title).slice(0, 24),
+      description: r.description ? String(r.description).slice(0, 60) : undefined
+    }));
+    allRows.push(...rows);
+  }
+
+  const total = allRows.length;
+  const maxRows = Math.max(1, LIST_GLOBAL_MAX);
+  const used = Math.min(total, maxRows);
+  const rowsToSend = allRows.slice(0, used);
+
+  // Chunk en secciones
+  const chunked = [];
+  for (let i = 0; i < rowsToSend.length && chunked.length < LIST_MAX_SECTIONS; i += LIST_ROWS_PER_SECTION) {
+    const chunkRows = rowsToSend.slice(i, i + LIST_ROWS_PER_SECTION);
+    const idx = chunked.length + 1;
+    const secTitle = (sections?.[0]?.title || 'Opciones') + (rowsToSend.length > LIST_ROWS_PER_SECTION ? ` ${idx}/${Math.ceil(rowsToSend.length / LIST_ROWS_PER_SECTION)}` : '');
+    chunked.push({
+      title: String(secTitle).slice(0, 24),
+      rows: chunkRows
+    });
+  }
+
   const interactive = {
     type: 'list',
     body: { text: String(body).slice(0, 1024) },
     action: {
       button: String(buttonText).slice(0, 20),
-      sections: (sections || []).slice(0, 10).map(sec => ({
-        title: String(sec.title || '').slice(0, 24),
-        rows: (sec.rows || []).map(r => ({
-          id: String(r.id),
-          title: String(r.title).slice(0, 24),
-          description: r.description ? String(r.description).slice(0, 60) : undefined
-        }))
-      }))
+      sections: chunked
     }
   };
   if (headerText) interactive.header = { type: 'text', text: String(headerText).slice(0, 60) };
 
-  // 🚦 Cap estricto de filas (máx. 6)
-  const allRows = interactive.action.sections.flatMap(s => s.rows);
-  if (allRows.length > 6) {
-    let remaining = 6;
-    const newSections = [];
-    for (const s of interactive.action.sections) {
-      if (!remaining) break;
-      const rows = s.rows.slice(0, remaining);
-      remaining -= rows.length;
-      newSections.push({ ...s, rows });
-    }
-    interactive.action.sections = newSections;
-  }
-
   const rowTitles = interactive.action.sections.flatMap(s => s.rows.map(r => r.title));
-  console.log(`[TX][list] to=${to} :: header="${headerText||''}" :: rows=${rowTitles.length} :: ${rowTitles.join(' | ')}`);
+  console.log(`[TX][list] to=${to} :: header="${headerText||''}" :: rows=${rowTitles.length}/${total} :: ${rowTitles.slice(0,8).join(' | ')}${rowTitles.length>8?' …':''}`);
+
   return wabaFetch({
     messaging_product: 'whatsapp',
     to,
