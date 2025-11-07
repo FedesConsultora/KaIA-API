@@ -15,7 +15,9 @@ import {
   shouldResetToMenu, resetToMenu,
   getReco, setReco, incRecoFail, resetRecoFail,
   shouldPromptFeedback, markFeedbackPrompted,
-  bumpLastInteraction
+  bumpLastInteraction,
+  resetRecoContext,         // ✅ ahora importamos el reset real
+  overwriteReco             // ✅ reemplazo duro del reco para búsquedas “nuevas”
 } from '../services/waSessionService.js';
 import { detectarIntent, isLikelyGreeting, sanitizeText } from '../services/intentService.js';
 import {
@@ -102,15 +104,14 @@ async function sendConfirmList(from, body, yesId = 'confirm.si', noId = 'confirm
   await sendWhatsAppList(from, body, sections, header, t('btn_elegi'));
 }
 
-/* ===== Helpers ===== */
-async function resetRecoContext(phone) {
-  await resetRecoFail(phone);
-  await setReco(phone, {
-    tokens: { must: [], should: [], negate: [] },
-    lastQuery: '',
-    lastSimilares: [],
-    lastShownIds: []
-  });
+/* ===== Heurística: ¿búsqueda nueva o refinamiento? ===== */
+function isFreshSearch(prevReco, consulta = '') {
+  const q = (consulta || '').toLowerCase();
+  const hasVerb = /(busco|estoy\s*buscando|quiero|necesito|catalogo|catálogo|otra cosa|nuevo|nueva busqueda|nueva búsqueda)/i.test(q);
+  const prevMust = (prevReco?.tokens?.must || []);
+  const killsMust = prevMust.length > 0 && !prevMust.some(m => q.includes(String(m).toLowerCase()));
+  const cameFromMenu = !prevReco?.lastQuery; // si venimos “en blanco”, tratamos como nueva
+  return hasVerb || killsMust || cameFromMenu;
 }
 
 /* ===== Recomendación con contexto (lista primero) ===== */
@@ -125,21 +126,41 @@ async function handleConsulta(from, nombre, consultaRaw) {
 
   const prev = await getReco(from);
   const gptNew = await extraerTerminosBusqueda(consulta);
-  const mergedTokens = {
-    must:   Array.from(new Set([...(prev?.tokens?.must || []), ...(gptNew?.must || [])])),
-    should: Array.from(new Set([...(prev?.tokens?.should || []), ...(gptNew?.should || [])])),
-    negate: Array.from(new Set([...(prev?.tokens?.negate || []), ...(gptNew?.negate || [])]))
-  };
 
-  if (DEBUG) {
-    console.log(`[RECO] consulta="${consulta}" prevTokens=${JSON.stringify(prev?.tokens||{})} new=${JSON.stringify(gptNew)} merged=${JSON.stringify(mergedTokens)}`);
+  // ¿Es búsqueda nueva o refinamiento?
+  if (isFreshSearch(prev, consulta)) {
+    await overwriteReco(from, {
+      // arranco limpio: sin MUST/SHOULD previos
+      failCount: 0,
+      tokens: {
+        must:   Array.isArray(gptNew?.must)   ? gptNew.must   : [],
+        should: Array.isArray(gptNew?.should) ? gptNew.should : [],
+        negate: Array.isArray(gptNew?.negate) ? gptNew.negate : []
+      },
+      lastQuery: consulta,
+      lastSimilares: [],
+      lastShownIds: [],
+      // señales en blanco
+      signals: {
+        species: null, form: null, brands: [], actives: [],
+        indications: [], weight_hint: null, packs: [], negatives: []
+      },
+      asked: [],
+      hops: 0,
+      lastInteractionAt: null
+    });
+    console.log(`[RECO] FRESH query="${consulta}" tokens=${JSON.stringify(gptNew)}`);
   } else {
-    console.log(`[RECO] consulta="${consulta}" gpt=${JSON.stringify(mergedTokens)}`);
+    const mergedTokens = {
+      must:   Array.from(new Set([...(prev?.tokens?.must || []), ...(gptNew?.must || [])])),
+      should: Array.from(new Set([...(prev?.tokens?.should || []), ...(gptNew?.should || [])])),
+      negate: Array.from(new Set([...(prev?.tokens?.negate || []), ...(gptNew?.negate || [])]))
+    };
+    await setReco(from, { tokens: mergedTokens, lastQuery: consulta });
+    console.log(`[RECO] REFINE query="${consulta}" tokens=${JSON.stringify(mergedTokens)}`);
   }
 
-  // 🚀 Derivamos al motor nuevo (desambiguación iterativa)
   await setState(from, 'awaiting_consulta');
-  await setReco(from, { tokens: mergedTokens, lastQuery: consulta });
   await runDisambiguationOrRecommend({ from, nombre, consulta });
 }
 
@@ -168,7 +189,7 @@ export async function handleWhatsAppMessage(req, res) {
       const normText = sanitizeText(text || '');
       console.log(`[RX] from=${from} state=${session.state} cuit=${session.cuit || '-'} text="${normText.slice(0, 160)}"`);
 
-      // 🆕 Capturar respuestas de desambiguación (ids "disambig:*")
+      // Captura respuestas de desambiguación (ids "disambig:*")
       if ((normText || '').startsWith('disambig:')) {
         const ok = await handleDisambigAnswer(from, normText);
         if (ok) continue;
@@ -219,7 +240,7 @@ export async function handleWhatsAppMessage(req, res) {
       const vet = await getVetByCuit(session.cuit);
       const nombre = firstName(vet?.nombre) || '';
 
-      // 🆕 Apertura de ficha por selección "prod:<id>"
+      // Apertura de ficha por selección "prod:<id>"
       if ((normText || '').startsWith('prod:')) {
         const pid = Number(String(normText).split(':')[1]);
         const ok = await openProductDetail(from, pid);
@@ -250,6 +271,9 @@ export async function handleWhatsAppMessage(req, res) {
             { id: 'humano',  title: t('btn_humano') },
             { id: 'menu',    title: t('btn_menu') }
           ]);
+
+          // (Opcional) limpiar contexto tras ver ficha
+          try { await resetRecoContext(from); } catch {}
         } else {
           await sendWhatsAppText(from, t('producto_open_error'));
         }

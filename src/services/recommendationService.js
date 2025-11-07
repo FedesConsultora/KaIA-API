@@ -32,50 +32,6 @@ function expandTerms(raw) {
   return Array.from(out);
 }
 
-/* ====== Normalización de PESO / PACK / FORMA / ESPECIE ====== */
-const RX = {
-  kg: /\b(\d+(?:[.,]\d+)?)\s*(?:kg|kilo)s?\b/i,
-  range: /(\d+(?:[.,]\d+)?)\s*(?:a|-|–|hasta)\s*(\d+(?:[.,]\d+)?)\s*kg/i,
-  hasta: /≤?\s*hasta\s*(\d+(?:[.,]\d+)?)\s*kg/i,
-  desde: /(desde|>=)\s*(\d+(?:[.,]\d+)?)\s*kg/i,
-  pack: /\b(pa?ck|x)\s*(\d{1,2})\b/i,
-  forma_pipeta: /pipet|spot[- ]?on|t[oó]pico/i,
-  forma_comp: /comprimid|tableta|tabs/i,
-  forma_iny: /inyect/i,
-  especie_gato: /\b(gato|felin[oa]s?)\b/i,
-  especie_perro: /\b(perr[oa]s?|canin[oa]s?)\b/i,
-};
-
-function normalizeNumber(n) {
-  const x = String(n).replace(',', '.').trim();
-  return x.replace(/^0+(\d)/, '$1');
-}
-function normalizeWeightLabel(text = '') {
-  const t = String(text || '').toLowerCase().replace(',', '.').trim();
-  let m = t.match(RX.range); if (m) return `${normalizeNumber(m[1])}–${normalizeNumber(m[2])} kg`;
-  m = t.match(RX.hasta);     if (m) return `≤${normalizeNumber(m[1])} kg`;
-  m = t.match(RX.desde);     if (m) return `≥${normalizeNumber(m[2])} kg`;
-  m = t.match(RX.kg);        if (m) return `${normalizeNumber(m[1])} kg`;
-  return null;
-}
-function extractPackLabel(text = '') {
-  const m = String(text || '').toLowerCase().match(RX.pack);
-  return m ? `x${m[2]}` : null;
-}
-function detectForm(txt = '') {
-  const t = norm(txt);
-  if (RX.forma_pipeta.test(t)) return 'pipeta';
-  if (RX.forma_comp.test(t))   return 'comprimido';
-  if (RX.forma_iny.test(t))    return 'inyectable';
-  return null;
-}
-function hasSpecies(txt = '', species = null) {
-  const t = norm(txt);
-  if (species === 'gato')  return RX.especie_gato.test(t);
-  if (species === 'perro') return RX.especie_perro.test(t);
-  return false;
-}
-
 export function toGPTProduct(p) {
   return {
     id: p.id,
@@ -97,13 +53,19 @@ function logDiversity(tag, arr = []) {
   const brands = new Set();
   const forms = new Set();
   for (const p of arr) {
-    const txt = `${p.nombre} ${p.presentacion} ${p.rubro} ${p.familia} ${p.observaciones||''}`;
-    const wNorm = normalizeWeightLabel(txt);
-    if (wNorm) weights.add(wNorm);
-    const mPack = extractPackLabel(txt);
-    if (mPack) packs.add(mPack);
-    const f = detectForm(txt);
-    if (f) forms.add(f);
+    const txt = norm(`${p.nombre} ${p.presentacion} ${p.rubro} ${p.familia} ${p.observaciones||''}`);
+    const w = (txt.match(/\b(\d+(?:[.,]\d+)?)\s*(?:a|-|–|hasta)\s*(\d+(?:[.,]\d+)?)\s*kg\b/i) ||
+               txt.match(/hasta\s*(\d+(?:[.,]\d+)?)\s*kg\b/i) ||
+               txt.match(/\b(\d+(?:[.,]\d+)?)\s*kg\b/i)) ? 'peso' : null;
+    if (w) weights.add('peso');
+
+    const mPack = txt.match(/\bx\s*(\d{1,2})\b/i);
+    if (mPack) packs.add(`x${mPack[1]}`);
+
+    if (/\bpipet|spot[- ]?on|t[oó]pico\b/i.test(txt)) forms.add('pipeta');
+    else if (/\bcomprimid|tableta|tabs\b/i.test(txt)) forms.add('comprimido');
+    else if (/\binyect\b/i.test(txt)) forms.add('inyectable');
+
     if (p.marca) brands.add(norm(p.marca));
   }
   console.log(`[RECO][STATS] ${tag} :: candidatos=${arr.length} | marcas=${brands.size} | formas=${forms.size} | packs=${packs.size} | pesos=${weights.size}`);
@@ -111,7 +73,8 @@ function logDiversity(tag, arr = []) {
 
 /**
  * Recomienda desde BBDD con apoyo opcional de tokens GPT y señales ricas.
- * Aplica post-filtros FUERTES con signals (peso/marca/forma/especie/pack) si reducen el set.
+ * @param {string} termRaw
+ * @param {{ gpt?: { must?: string[], should?: string[], negate?: string[] }, signals?: object }} opts
  */
 export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   const term = (termRaw || '').trim();
@@ -194,49 +157,10 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
     return { validos: [], top: null, similares: [] };
   }
 
-  /* ====== POST-FILTROS FUERTES CON signals ======
-     Si el filtro produce >0 elementos, se aplica. Si deja 0, se degrada (no se aplica). */
-  let filtered = candidatos;
-
-  const sigBrands = Array.isArray(sig.brands) ? sig.brands.map(norm).filter(Boolean) : [];
-  const sigPacks  = Array.isArray(sig.packs)  ? sig.packs.map(norm).filter(Boolean)  : [];
-  const sigForm   = sig.form ? norm(sig.form) : null;
-  const sigSpecies = sig.species ? norm(sig.species) : null;
-  const sigWeight = sig.weight_hint ? normalizeWeightLabel(sig.weight_hint) : null;
-
-  const maybeApply = (arr, fnFilter) => {
-    const next = arr.filter(fnFilter);
-    return next.length > 0 ? next : arr; // degradar si queda vacío
-  };
-
-  if (sigBrands.length) {
-    const setB = new Set(sigBrands);
-    filtered = maybeApply(filtered, p => setB.has(norm(p.marca || '')));
-  }
-  if (sigForm) {
-    filtered = maybeApply(filtered, p => detectForm(`${p.nombre} ${p.presentacion} ${p.rubro} ${p.familia} ${p.observaciones||''}`) === sigForm);
-  }
-  if (sigSpecies) {
-    filtered = maybeApply(filtered, p => hasSpecies(`${p.nombre} ${p.presentacion} ${p.familia} ${p.rubro} ${p.observaciones||''}`, sigSpecies));
-  }
-  if (sigPacks.length) {
-    const setP = new Set(sigPacks);
-    filtered = maybeApply(filtered, p => {
-      const lbl = extractPackLabel(`${p.nombre} ${p.presentacion}`);
-      return lbl ? setP.has(norm(lbl)) : false;
-    });
-  }
-  if (sigWeight) {
-    filtered = maybeApply(filtered, p => {
-      const w = normalizeWeightLabel(`${p.nombre} ${p.presentacion}`);
-      return !!w && w === sigWeight;
-    });
-  }
-
-  // ===== Scoring con bonos por signals (incluye match por peso normalizado) =====
+  // POST-FILTRO + SCORE con pesos para señales ricas (y penalización por especie opuesta)
   const tokensForHit = Array.from(new Set([...shouldTokens, ...must])).filter(Boolean);
 
-  const scored = filtered
+  const scored = candidatos
     .map((p) => {
       const H = norm([
         p.nombre, p.presentacion, p.marca, p.rubro, p.familia, p.observaciones
@@ -260,16 +184,18 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
       }
 
       // Bonos por señales ricas bien mapeadas
-      if (sigSpecies && hasSpecies(H, sigSpecies)) s += 3;
-      if (sigForm && detectForm(H) === sigForm)   s += 3;
-      sigBrands.forEach(b => { if (b && H.includes(b)) s += 2; });
-      sigPacks.forEach(px => { if (px && H.includes(px)) s += 2; });
+      if (sig.species && H.includes(norm(sig.species))) s += 3;
+      if (sig.form && H.includes(norm(sig.form))) s += 3;
+      (sig.brands || []).forEach(b => { if (b && H.includes(norm(b))) s += 2; });
+      (sig.indications || []).forEach(i => { if (i && H.includes(norm(i))) s += 1; });
+      (sig.packs || []).forEach(px => { if (px && H.includes(norm(px))) s += 2; });
+      if (sig.weight_hint && H.includes(norm(sig.weight_hint))) s += 3;
 
-      // 🆕 Peso normalizado: comparar por etiqueta normalizada
-      if (sigWeight) {
-        const w = normalizeWeightLabel(`${p.nombre} ${p.presentacion}`);
-        if (w && w === sigWeight) s += 4;
-      }
+      // 💥 Penalización especie contrapuesta (evita “GATOS” cuando piden “PERROS”, y viceversa)
+      const hasPerro = /\bperr[oa]s?\b/.test(H);
+      const hasGato  = /\bgat[oa]s?\b|felin[oa]s?/.test(H);
+      if (sig.species === 'perro' && hasGato && !hasPerro) s -= 8;
+      if (sig.species === 'gato'  && hasPerro && !hasGato) s -= 8;
 
       // Disponibilidad leve
       s += (Number(p.cantidad) || 0) / 1000;
