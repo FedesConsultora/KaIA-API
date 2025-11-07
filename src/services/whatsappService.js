@@ -8,10 +8,17 @@ const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 if (!WABA_TOKEN) console.warn('⚠️ Falta WHATSAPP_ACCESS_TOKEN');
 if (!PHONE_ID) console.warn('⚠️ Falta WHATSAPP_PHONE_NUMBER_ID');
 
-// 🔧 Config de paginado para List Messages (WhatsApp limita filas por sección y secciones)
-const LIST_ROWS_PER_SECTION = Number(process.env.RECO_LIST_ROWS_PER_SECTION || 10); // máx recomendado por WhatsApp
-const LIST_MAX_SECTIONS    = Number(process.env.RECO_LIST_MAX_SECTIONS    || 10); // máx recomendado por WhatsApp
-const LIST_GLOBAL_MAX      = Number(process.env.RECO_LIST_GLOBAL_MAX      || (LIST_ROWS_PER_SECTION * LIST_MAX_SECTIONS));
+// 🔧 Config de paginado para List Messages
+const LIST_ROWS_PER_SECTION = Number(process.env.RECO_LIST_ROWS_PER_SECTION || 10); // WhatsApp recomienda 10
+const LIST_MAX_SECTIONS    = Number(process.env.RECO_LIST_MAX_SECTIONS    || 10); // recomendado 10
+// ⚠️ Tope duro observado por WABA (evitamos 131009). Si la cuenta permite más, podés subirlo por env.
+const HARD_MAX_ROWS        = Number(process.env.WABA_SAFE_LIST_MAX || 10);
+
+// Si alguien setea un global mayor por env, igual lo capamos a HARD_MAX_ROWS
+const LIST_GLOBAL_MAX      = Math.min(
+  Number(process.env.RECO_LIST_GLOBAL_MAX || (LIST_ROWS_PER_SECTION * LIST_MAX_SECTIONS)),
+  HARD_MAX_ROWS
+);
 
 function buildUrl(path) {
   return `${WABA_URL.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
@@ -132,9 +139,8 @@ export async function sendWhatsAppContacts(to, contacts = []) {
 }
 
 /**
- * Envia una lista interactiva paginada en secciones de hasta LIST_ROWS_PER_SECTION filas.
- * Hasta LIST_MAX_SECTIONS secciones → máximo LIST_GLOBAL_MAX filas por mensaje (limitación WhatsApp).
- * Si el total excede LIST_GLOBAL_MAX, se recorta a ese máximo.
+ * Envia una lista interactiva paginada.
+ * ⚠️ Para evitar 131009, limitamos SIEMPRE el total a LIST_GLOBAL_MAX (por defecto 10).
  */
 export async function sendWhatsAppList(to, body, sections, headerText = null, buttonText = 'Elegí') {
   // Aplano todas las filas manteniendo el id/title/description
@@ -149,16 +155,20 @@ export async function sendWhatsAppList(to, body, sections, headerText = null, bu
   }
 
   const total = allRows.length;
-  const maxRows = Math.max(1, LIST_GLOBAL_MAX);
+  const maxRows = Math.max(1, LIST_GLOBAL_MAX); // ← tope duro (10 por defecto)
   const used = Math.min(total, maxRows);
   const rowsToSend = allRows.slice(0, used);
 
-  // Chunk en secciones
+  // Chunk en secciones (igual capado a maxRows total)
   const chunked = [];
   for (let i = 0; i < rowsToSend.length && chunked.length < LIST_MAX_SECTIONS; i += LIST_ROWS_PER_SECTION) {
     const chunkRows = rowsToSend.slice(i, i + LIST_ROWS_PER_SECTION);
     const idx = chunked.length + 1;
-    const secTitle = (sections?.[0]?.title || 'Opciones') + (rowsToSend.length > LIST_ROWS_PER_SECTION ? ` ${idx}/${Math.ceil(rowsToSend.length / LIST_ROWS_PER_SECTION)}` : '');
+    const baseTitle = sections?.[0]?.title || 'Opciones';
+    const secTitle = rowsToSend.length > LIST_ROWS_PER_SECTION
+      ? `${baseTitle} ${idx}/${Math.ceil(rowsToSend.length / LIST_ROWS_PER_SECTION)}`
+      : baseTitle;
+
     chunked.push({
       title: String(secTitle).slice(0, 24),
       rows: chunkRows
