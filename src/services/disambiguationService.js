@@ -5,7 +5,8 @@ import { responderConGPTStrict, extraerTerminosBusqueda } from './gptService.js'
 import { t } from '../config/texts.js';
 import {
   getReco, setReco, incRecoFail, resetRecoFail,
-  setState, getState, setPending, getPending, clearPending
+  setState, getState, setPending, getPending,
+  clearPendingKey // 🆕 limpiar solo 'disambig'
 } from './waSessionService.js';
 import {
   sendWhatsAppText,
@@ -221,19 +222,6 @@ function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] })
   return null;
 }
 
-function toDetailBlock(p) {
-  const precio = p.precio ? ` $${Number(p.precio).toFixed(0)}` : '(consultar)';
-  const promo  = p.promo?.activa ? `Sí: ${p.promo.nombre}` : 'No';
-  return [
-    `- Producto sugerido: ${p.nombre}`,
-    `- Marca / Presentación: ${p.marca || '—'}${p.presentacion ? ` / ${p.presentacion}` : ''}`,
-    `- ¿Tiene promoción?: ${promo}`,
-    `- Precio estimado (si aplica): ${precio}`,
-    `- ⚠️ Advertencia: Esta sugerencia no reemplaza una indicación clínica.`
-  ].join('\n');
-}
-
-// ===== Helpers: pick + formato ficha =====
 function pick(v, keys = []) {
   for (const k of keys) {
     if (v[k] != null && String(v[k]).toString().trim() !== '') return String(v[k]);
@@ -420,7 +408,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
   const hops = prev.hops || 0;
   const asked = prev.asked || [];
 
-  // 🆕 Si queda 1 solo candidato → devolvemos FICHA + GPT directamente
+  // Si queda 1 solo candidato → devolvemos FICHA + GPT directamente
   if (candidatos.length === 1) {
     await openProductDetail(from, candidatos[0].id);
     await setState(from, 'awaiting_consulta');
@@ -587,7 +575,8 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   if (type === 'pack')    newSignals.packs   = Array.from(new Set([...(newSignals.packs||[]), value]));
   if (type === 'active')  newSignals.actives = Array.from(new Set([...(newSignals.actives||[]), value]));
 
-  await clearPending(from);
+  // 🆕 Limpio SOLO 'disambig' (preservo reco, asked, hops, etc.)
+  await clearPendingKey(from, 'disambig');
   await setState(from, 'awaiting_consulta');
 
   // Merge señales + tokens al reco y continuar
@@ -606,7 +595,7 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
     negate: Array.from(new Set([...(prev?.tokens?.negate || [])]))
   };
 
-  // 🛡️ Blindaje adicional: marcamos "asked" también al responder
+  // Blindaje: marcamos "asked" también al responder
   const newAsked = Array.from(new Set([...(prev?.asked || []), type]));
 
   await setReco(from, {

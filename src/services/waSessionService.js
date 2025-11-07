@@ -85,6 +85,16 @@ export async function clearPending(phone) {
   await WhatsAppSession.update({ pending: null }, { where: { phone } });
 }
 
+/** 🆕 Limpia SOLO una clave de pending (ej. 'disambig'), preservando pending.reco */
+export async function clearPendingKey(phone, key) {
+  const s = await WhatsAppSession.findOne({ where: { phone } });
+  const cur = s?.pending || null;
+  if (!cur || !(key in cur)) return;
+  const next = { ...cur };
+  delete next[key];
+  await WhatsAppSession.update({ pending: next }, { where: { phone } });
+}
+
 export async function logout(phone) {
   await WhatsAppSession.update(
     { state: 'awaiting_cuit', cuit: null, verifiedAt: null, expiresAt: null, pending: null },
