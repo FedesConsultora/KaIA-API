@@ -3,7 +3,7 @@ const TEXTS = {
   brand: { nombre: 'KrönenVet' },
 
   /* ====== Saludos / gating ====== */
-  saludo_header: 'Hola {nombre} 👋',
+  saludo_header: 'Hola {nombre} 👋 Soy KaIA, tu asistente virtual de KrönenVet.',
   ask_cuit: `👋 ¡Hola! Soy KaIA, tu asistente virtual de KrönenVet.
 
 Estoy acá para ayudarte con consultas sobre productos, stock y tu cuenta corriente.
@@ -35,6 +35,7 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   desambig_peso_header: 'Elegí franja de peso',
   desambig_peso_body_gato: '¿Cuánto pesa el gato? Elegí una franja:',
   desambig_peso_body_perro: '¿Cuánto pesa el perro? Elegí una franja:',
+  desambig_peso_body_neutral: '¿Cuánto pesa? Elegí una franja:',
   desambig_form_header: 'Elegí presentación',
   desambig_form_body: '¿Preferís pipeta, comprimido o inyectable?',
   desambig_pack_header: 'Elegí pack',

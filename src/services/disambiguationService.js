@@ -21,13 +21,15 @@ let openai = null;
 if (process.env.OPENAI_API_KEY) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ===== Config =====
-const FIRST_LIST_THRESHOLD = Number(process.env.RECO_FIRST_LIST_THRESHOLD || 6); // si <6: listar directo
+const FIRST_LIST_THRESHOLD = Number(process.env.RECO_FIRST_LIST_THRESHOLD || 6); // si <=6: listar directo
 const MAX_HOPS             = Number(process.env.RECO_MAX_HOPS || 2);            // desambiguaciones “normales” permitidas
 
 // límites duros de WhatsApp para List Messages (coinciden con whatsappService)
 const LIST_ROWS_PER_SECTION = Number(process.env.RECO_LIST_ROWS_PER_SECTION || 10);
 const LIST_MAX_SECTIONS     = Number(process.env.RECO_LIST_MAX_SECTIONS || 10);
 const LIST_GLOBAL_MAX       = Number(process.env.RECO_LIST_GLOBAL_MAX || (LIST_ROWS_PER_SECTION * LIST_MAX_SECTIONS));
+
+const DEBUG = process.env.DEBUG_RECO === '1';
 
 // ====== Utils de normalización / parse ======
 const RX = {
@@ -73,6 +75,19 @@ function hardSpeciesInQuery(query = '') {
   if (RX.especie_gato.test(q))  return 'gato';
   if (RX.especie_perro.test(q)) return 'perro';
   return null;
+}
+
+/* === NUEVO: detectar especie “dominante” entre candidatos === */
+function dominantSpecies(productos = []) {
+  let g = 0, p = 0;
+  for (const pr of productos) {
+    const txt = NORM(`${pr.nombre} ${pr.presentacion} ${pr.familia} ${pr.rubro} ${pr.observaciones||''}`);
+    if (RX.especie_gato.test(txt)) g++;
+    if (RX.especie_perro.test(txt)) p++;
+  }
+  if (g > 0 && p === 0) return 'gato';
+  if (p > 0 && g === 0) return 'perro';
+  return null; // mixto o indeterminado
 }
 
 // ====== Señales ricas (GPT) ======
@@ -163,7 +178,7 @@ function analyzeVariantDimensions(productos = []) {
 // Elegir qué preguntar primero, evitando repetir lo ya preguntado o ya definido
 function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] }) {
   const explicitSpecies = hardSpeciesInQuery(consulta);
-  const especie = signals.species || explicitSpecies || null;
+  const especie = signals.species || explicitSpecies || dominantSpecies(productos) || null;
   const forma   = signals.form || null;
   const isPipeta = looksLikePipeta(consulta, tokens) || forma === 'pipeta';
 
@@ -171,17 +186,23 @@ function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] })
 
   const already = new Set(asked || []);
 
-  if (!especie && !already.has('species')) {
-    const txt = NORM(productos.map(p => `${p.nombre} ${p.presentacion} ${p.familia} ${p.rubro} ${p.observaciones||''}`).join(' | '));
-    const hayGato  = RX.especie_gato.test(txt);
-    const hayPerro = RX.especie_perro.test(txt);
-    if (hayGato && hayPerro) {
-      return { type: 'species', title: t('desambig_species_header'), body: t('desambig_species_body') };
-    }
+  // Si hay mezcla perro/gato en candidatos pedimos especie; si es dominante única, no preguntamos.
+  const txt = NORM(productos.map(p => `${p.nombre} ${p.presentacion} ${p.familia} ${p.rubro} ${p.observaciones||''}`).join(' | '));
+  const hayGato  = RX.especie_gato.test(txt);
+  const hayPerro = RX.especie_perro.test(txt);
+  if (!especie && !already.has('species') && hayGato && hayPerro) {
+    return { type: 'species', title: t('desambig_species_header'), body: t('desambig_species_body') };
   }
 
+  // Peso sólo si pipeta y hay diversidad real de pesos
   if (isPipeta && needs.peso && !signals.weight_hint && !already.has('weight')) {
-    return { type: 'weight', title: t('desambig_peso_header'), body: (especie === 'gato') ? t('desambig_peso_body_gato') : t('desambig_peso_body_perro') };
+    const specForBody = especie; // puede ser null
+    const body = specForBody === 'gato'
+      ? t('desambig_peso_body_gato')
+      : specForBody === 'perro'
+        ? t('desambig_peso_body_perro')
+        : t('desambig_peso_body_neutral'); // <- NUEVO: copy neutral
+    return { type: 'weight', title: t('desambig_peso_header'), body };
   }
 
   if (!forma && needs.forma && !already.has('form')) {
@@ -198,7 +219,8 @@ function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] })
 
   // Fallback por diversidad (si queda algo amplio y no lo preguntamos aún)
   const diversity = [
-    { key: 'peso',  size: sets.peso.size,  type: 'weight', title: t('desambig_peso_header'),  body: (especie === 'gato') ? t('desambig_peso_body_gato') : t('desambig_peso_body_perro') },
+    { key: 'peso',  size: sets.peso.size,  type: 'weight', title: t('desambig_peso_header'),
+      body: (especie === 'gato') ? t('desambig_peso_body_gato') : (especie === 'perro') ? t('desambig_peso_body_perro') : t('desambig_peso_body_neutral') },
     { key: 'marca', size: sets.marca.size, type: 'brand',  title: t('desambig_brand_header'), body: t('desambig_brand_body') },
     { key: 'forma', size: sets.forma.size, type: 'form',   title: t('desambig_form_header'),  body: t('desambig_form_body') },
     { key: 'pack',  size: sets.pack.size,  type: 'pack',   title: t('desambig_pack_header'),  body: t('desambig_pack_body') },
@@ -361,7 +383,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
 
   // 2) Señales ricas (GPT) + merge con señales persistidas
   const signalsNew = await extraerSenalesRicas(consulta);
-  const signals = {
+  let signals = {
     species: prev.signals?.species ?? signalsNew.species ?? null,
     form: prev.signals?.form ?? signalsNew.form ?? null,
     brands: Array.from(new Set([...(prev.signals?.brands||[]), ...(signalsNew.brands||[])])),
@@ -380,7 +402,14 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
 
   // 4) Buscar candidatos
   const { validos = [], similares = [] } = await recomendarDesdeBBDD(consulta, { gpt: mergedTokens, signals });
-  const candidatos = [...validos, ...similares];
+  let candidatos = [...validos, ...similares];
+
+  // 🔒 NUEVO: si hay especie dominante única en candidatos y el usuario no dijo especie → la fijamos
+  const dom = dominantSpecies(candidatos);
+  if (!signals.species && dom) {
+    signals = { ...signals, species: dom };
+    await setReco(from, { signals });
+  }
 
   console.log(`[RECO][ITER] query="${consulta}" -> validos=${validos.length} similares=${similares.length} total=${candidatos.length}`);
 
@@ -418,7 +447,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     return true;
   }
 
-  // Si hay muchos, vemos si aún conviene desambiguar
+  // Elegimos si preguntar algo más
   let question = pickFirstQuestion({
     signals,
     tokens: mergedTokens,
@@ -427,18 +456,15 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     asked
   });
 
-  // REGLA 2: si ya alcanzamos el máximo de desambiguaciones “normales”
+  // REGLA 2: si ya alcanzamos el máximo de desambiguaciones “normales”, listamos TODO si entra
   if (hops >= MAX_HOPS) {
-    // Si WhatsApp permite mostrar TODO en un único mensaje → listamos TODO (segmentado en secciones)
     if (candidatos.length <= LIST_GLOBAL_MAX) {
       await sendWhatsAppText(from, t('mostrando_todos', { total: candidatos.length }));
       await sendProductsList(from, candidatos, t('productos_select_header'));
       await setState(from, 'awaiting_consulta');
       return true;
     }
-
-    // Si NO entra todo en un único mensaje de WhatsApp:
-    // Intentamos UNA pregunta extra “inteligente” para bajar el universo.
+    // overflow: hacemos UNA pregunta más “inteligente” para reducir universo
     if (question) {
       const { groups } = analyzeVariantDimensions(candidatos);
       const opts = new Set();
@@ -470,7 +496,6 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
           opciones: rows.map(r => r.id)
         }
       });
-      // marcamos que ya preguntamos este tipo (no cuenta como hop “normal”)
       await setReco(from, { asked: Array.from(new Set([...(asked||[]), question.type])) });
 
       await sendWhatsAppList(
@@ -597,5 +622,18 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
 
   console.log(`[RECO][ANS] type=${type} value="${value}"`);
 
+  /* ==== NUEVO: Si ya entra en un List Message único, mostramos productos inmediatamente ==== */
+  const { validos = [], similares = [] } = await recomendarDesdeBBDD(d.consulta, { gpt: mergedTokens, signals: newSignals });
+  const candidatos = [...validos, ...similares];
+
+  // Si cabe en un solo mensaje (hasta LIST_GLOBAL_MAX), mostramos TODO y cortamos el ciclo
+  if (candidatos.length && candidatos.length <= LIST_GLOBAL_MAX) {
+    await sendWhatsAppText(from, t('mostrando_todos', { total: candidatos.length }));
+    await sendProductsList(from, candidatos, t('productos_select_header'));
+    await setState(from, 'awaiting_consulta');
+    return true;
+  }
+
+  // Caso contrario, seguimos con el flujo normal
   return runDisambiguationOrRecommend({ from, nombre: '', consulta: d.consulta });
 }
