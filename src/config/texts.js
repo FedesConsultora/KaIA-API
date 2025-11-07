@@ -23,6 +23,8 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   refinar_follow:
     'Podés seguir afinando: sumá marca, presentación, especie o compuesto activo. Si preferís, escribí "menú".',
 
+  reco_pedir_especie: '¿Para qué especie lo buscás?',
+
   // ====== Desambiguación ======
   desambig_species_header: 'Elegí especie',
   desambig_species_body: '¿Para qué especie lo estás buscando?',

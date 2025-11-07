@@ -25,7 +25,12 @@ import { WhatsAppSession, Promocion } from '../models/index.js';
 import { t } from '../config/texts.js';
 
 // 🆕 Lista/Detalle de productos + desambiguación
-import { sendProductsList, openProductDetail, handleDisambigAnswer } from '../services/disambiguationService.js';
+import {
+  sendProductsList,
+  openProductDetail,
+  handleDisambigAnswer,
+  runDisambiguationOrRecommend
+} from '../services/disambiguationService.js';
 
 const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || 'dev-token';
 const MAX_FAILS = Number(process.env.SEARCH_MAX_FAILS || 5);
