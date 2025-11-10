@@ -21,8 +21,9 @@ export async function showConfirmList(from, body, yesId = 'confirm.si', noId = '
   const sections = [{
     title: 'Confirmación',
     rows: [
-      { id: yesId, title: t('btn_confirmar') },
-      { id: noId , title: t('btn_cancelar') }
+      { id: yesId,   title: t('btn_confirmar') },
+      { id: noId ,   title: t('btn_cancelar') },
+      { id: 'volver', title: t('btn_volver') }
     ]
   }];
   await sendWhatsAppList(from, body, sections, header, t('btn_elegi'));

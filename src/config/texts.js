@@ -23,9 +23,10 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   refinar_follow:
     'Podés seguir afinando: sumá marca, presentación, especie o compuesto activo. Si preferís, escribí "menú".',
 
-  // 🆕 Mensajes de listado “completo” o truncado por límite de WhatsApp
+  // Mensajes de listado “completo” o truncado por límite de WhatsApp
   mostrando_todos: 'Encontré {total} producto(s). Te muestro todos:',
-  muchos_resultados: 'Encontré {total} productos. WhatsApp permite listar hasta {max} por mensaje. Te muestro {shown}. Podés refinar por *marca* (ej. “marca X”), *presentación* (pipeta/comprimido) o *peso*.',
+  muchos_resultados:
+    'Encontré {total} productos. WhatsApp permite listar hasta {max} por mensaje. Te muestro {shown}. Podés refinar por *marca* (ej. “marca X”), *presentación* (pipeta/comprimido) o *peso*.',
 
   reco_pedir_especie: '¿Para qué especie lo buscás?',
 
@@ -83,14 +84,22 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   editar_intro: 'Podés actualizar tus datos. ¿Qué querés cambiar?',
   editar_pedir_nombre:
     'Decime tu nombre tal como querés que figure (por ejemplo: “Clínica San Martín”).',
-  editar_confirmar_nombre:
-    'Vas a cambiar tu nombre a:\n“{valor}”\n\n¿Confirmás el cambio?',
+  // NUEVO: mostrar valor actual y confirmar “de → a”
+  editar_status_nombre: 'Tu nombre actual es: “{actual}”.',
+  editar_confirmar_nombre_full:
+    'Vas a cambiar tu nombre de:\n“{actual}” → “{valor}”\n\n¿Confirmás el cambio?',
   editar_ok_nombre: '¡Hecho, {nombre}! Actualicé tu nombre. ✍️',
+
   editar_pedir_email: 'Decime tu email (ej: ejemplo@dominio.com).',
-  editar_confirmar_email:
-    'Vas a cambiar tu email a:\n“{valor}”\n\n¿Confirmás el cambio?',
+  editar_status_email: 'Tu email actual es: “{actual}”.',
+  editar_confirmar_email_full:
+    'Vas a cambiar tu email de:\n“{actual}” → “{valor}”\n\n¿Confirmás el cambio?',
   editar_ok_email: 'Perfecto {nombre}, guardé tu email {email}. 📧',
   editar_email_invalido: 'Ese email no parece válido. Probá de nuevo (ej: ejemplo@dominio.com).',
+
+  // (legacy, por si algo más lo usa)
+  editar_confirmar_nombre: 'Vas a cambiar tu nombre a:\n“{valor}”\n\n¿Confirmás el cambio?',
+  editar_confirmar_email: 'Vas a cambiar tu email a:\n“{valor}”\n\n¿Confirmás el cambio?',
 
   /* ====== Logout ====== */
   logout_confirm:
@@ -110,7 +119,7 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   escala_ejecutivo:
     'Te comparto el contacto de tu ejecutivo de cuentas **{ejecutivo}** para que continúen por ahí. 👇',
 
-  // 🆕 Derivaciones post-ficha
+  // Derivaciones post-ficha
   handoff_ejecutivo:
     'Si querés cerrarlo ya, escribile a tu ejecutivo **{ejecutivo}**: wa.me/{telefono}',
   handoff_admin:

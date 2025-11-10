@@ -6,7 +6,7 @@ import { t } from '../config/texts.js';
 import {
   getReco, setReco, incRecoFail, resetRecoFail,
   setState, getState, setPending, getPending,
-  clearPendingKey // 🆕 limpiar solo 'disambig'
+  clearPendingKey // limpiar solo 'disambig'
 } from './waSessionService.js';
 import {
   sendWhatsAppText,
@@ -22,11 +22,10 @@ let openai = null;
 if (process.env.OPENAI_API_KEY) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ===== Config =====
-const FIRST_LIST_THRESHOLD = Number(process.env.RECO_FIRST_LIST_THRESHOLD || 6); // si <6: listar directo
-const MAX_HOPS             = Number(process.env.RECO_MAX_HOPS || 2);            // desambiguaciones “normales” permitidas
-
-// ⚠️ Límite duro para filas de WhatsApp (evitar 131009)
-const SAFE_LIST_MAX        = Number(process.env.RECO_SAFE_LIST_MAX || 10);
+const FIRST_LIST_THRESHOLD = Number(process.env.RECO_FIRST_LIST_THRESHOLD || 10); // si ≤10: listar directo
+const MAX_HOPS             = Number(process.env.RECO_MAX_HOPS || 2);             // desambiguaciones “normales”
+const SAFE_LIST_MAX        = Number(process.env.RECO_SAFE_LIST_MAX || 10);       // límite duro WABA
+const GPT_SUMMARY_ON_SMALL = process.env.RECO_GPT_SUMMARY_ON_SMALL !== '0';      // opcional
 
 // ====== Utils de normalización / parse ======
 const RX = {
@@ -114,7 +113,7 @@ async function extraerSenalesRicas(query) {
   }
 }
 
-// ====== Agrupación de variantes y plan de desambiguación ======
+// ====== Agrupación y plan de desambiguación ======
 function baseKey(p) {
   let t = `${NORM(p.marca)} ${NORM(p.nombre)} ${NORM(p.presentacion)}`;
   t = t.replace(RX.range, ' ')
@@ -159,7 +158,6 @@ function analyzeVariantDimensions(productos = []) {
   return { groups, needs, sets };
 }
 
-// Elegir qué preguntar primero, evitando repetir lo ya preguntado o ya definido
 function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] }) {
   const explicitSpecies = hardSpeciesInQuery(consulta);
   const especie = signals.species || explicitSpecies || null;
@@ -167,23 +165,18 @@ function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] })
   const isPipeta = looksLikePipeta(consulta, tokens) || forma === 'pipeta';
 
   const { needs, sets } = analyzeVariantDimensions(productos);
-
   const already = new Set(asked || []);
 
-  // ¿Qué especies aparecen en los candidatos?
   const txt = NORM(productos.map(p => `${p.nombre} ${p.presentacion} ${p.familia} ${p.rubro} ${p.observaciones||''}`).join(' | '));
   const hayGato  = RX.especie_gato.test(txt);
   const hayPerro = RX.especie_perro.test(txt);
 
-  // 1) Si hay gato y perro en candidatos y no tenemos especie → preguntar especie primero
   if (!especie && !already.has('species')) {
     if (hayGato && hayPerro) {
       return { type: 'species', title: t('desambig_species_header'), body: t('desambig_species_body') };
     }
   }
 
-  // 2) Pipetas: si hay variantes por peso y no tenemos peso → preguntar peso
-  //    Para el copy, si no definió especie, usamos la que “predomina” en candidatos.
   const especieBody = especie || (hayGato && !hayPerro ? 'gato' : hayPerro && !hayGato ? 'perro' : null);
 
   if (isPipeta && needs.peso && !signals.weight_hint && !already.has('weight')) {
@@ -206,7 +199,6 @@ function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] })
     return { type: 'brand', title: t('desambig_brand_header'), body: t('desambig_brand_body') };
   }
 
-  // Fallback por diversidad
   const diversity = [
     { key: 'peso',  size: sets.peso.size,  type: 'weight', title: t('desambig_peso_header'),  body: (especieBody === 'gato') ? t('desambig_peso_body_gato') : t('desambig_peso_body_perro') },
     { key: 'marca', size: sets.marca.size, type: 'brand',  title: t('desambig_brand_header'), body: t('desambig_brand_body') },
@@ -314,10 +306,23 @@ export async function openProductDetail(from, productId) {
   return true;
 }
 
+// ===== Quick summary GPT cuando el universo es chico =====
+async function sendGptQuickReply(from, consulta, productosValidos = []) {
+  if (!GPT_SUMMARY_ON_SMALL) return;
+  try {
+    if (!productosValidos?.length) return;
+    const texto = await responderConGPTStrict(consulta, {
+      productosValidos: productosValidos.slice(0, 3), // Top 1–3
+      similares: []
+    });
+    if (texto && texto.trim()) await sendWhatsAppText(from, texto.trim());
+  } catch (_) {}
+}
+
 // ===== Lista de productos (capada a 10 filas) =====
 export async function sendProductsList(from, productos, header = null) {
   if (!productos?.length) return;
-  const prods = productos.slice(0, SAFE_LIST_MAX); // ← capar a 10
+  const prods = productos.slice(0, SAFE_LIST_MAX);
   const rows = prods.map(p => ({
     id: `prod:${p.id}`,
     title: String(p.nombre || 'Producto').slice(0, 24),
@@ -346,7 +351,6 @@ function scrubSpuriousSpeciesTokens(mergedTokens, consulta, signals) {
 
 // ====== API principal (muestra lista primero) ======
 export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
-  // Estado previo
   const prev = await getReco(from);
 
   // 1) Tokens desde texto + merge con prev
@@ -373,7 +377,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
   // 3) No asumir especie si no fue explícita ni está lockeada
   mergedTokens = scrubSpuriousSpeciesTokens(mergedTokens, consulta, signals);
 
-  // Guardamos contexto actualizado (tokens + signals)
+  // Guardamos contexto actualizado
   await setReco(from, { tokens: mergedTokens, lastQuery: consulta, signals });
 
   // 4) Buscar candidatos
@@ -408,22 +412,23 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
   const hops = prev.hops || 0;
   const asked = prev.asked || [];
 
-  // Si queda 1 solo candidato → devolvemos FICHA + GPT directamente
+  // 1 candidato → ficha + GPT
   if (candidatos.length === 1) {
     await openProductDetail(from, candidatos[0].id);
     await setState(from, 'awaiting_consulta');
     return true;
   }
 
-  // REGLA 1: si hay pocos candidatos, listar TODO (cap a 10 por WABA)
+  // REGLA 1: pocos candidatos → listar TODO (cap a 10) + mini-resumen GPT
   if (candidatos.length <= FIRST_LIST_THRESHOLD) {
     await sendWhatsAppText(from, t('mostrando_todos', { total: Math.min(candidatos.length, SAFE_LIST_MAX) }));
     await sendProductsList(from, candidatos, t('productos_select_header'));
     await setState(from, 'awaiting_consulta');
+    await sendGptQuickReply(from, consulta, validos);
     return true;
   }
 
-  // Si hay muchos, vemos si aún conviene desambiguar
+  // Muchos: ¿conviene desambiguar?
   let question = pickFirstQuestion({
     signals,
     tokens: mergedTokens,
@@ -432,17 +437,17 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     asked
   });
 
-  // REGLA 2: si ya alcanzamos el máximo de desambiguaciones “normales”
+  // REGLA 2: máximo de hops “normales”
   if (hops >= MAX_HOPS) {
-    // Si entran en un único mensaje seguro → listamos (cap a SAFE_LIST_MAX)
     if (candidatos.length <= SAFE_LIST_MAX) {
       await sendWhatsAppText(from, t('mostrando_todos', { total: candidatos.length }));
       await sendProductsList(from, candidatos, t('productos_select_header'));
       await setState(from, 'awaiting_consulta');
+      await sendGptQuickReply(from, consulta, validos);
       return true;
     }
 
-    // Intentamos UNA pregunta extra “inteligente” para bajar el universo.
+    // Una pregunta extra “inteligente”
     if (question) {
       const { groups } = analyzeVariantDimensions(candidatos);
       const opts = new Set();
@@ -474,7 +479,6 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
           opciones: rows.map(r => r.id)
         }
       });
-      // marcamos que ya preguntamos este tipo (no cuenta como hop “normal”)
       await setReco(from, { asked: Array.from(new Set([...(asked||[]), question.type])) });
 
       await sendWhatsAppList(
@@ -487,7 +491,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
       return true;
     }
 
-    // Si no hay pregunta útil, mostramos hasta el máximo y avisamos cómo refinar
+    // Sin pregunta útil → mostrar hasta el máximo y sugerir refinar
     await sendWhatsAppText(from, t('muchos_resultados', { total: candidatos.length, max: SAFE_LIST_MAX, shown: SAFE_LIST_MAX }));
     await sendProductsList(from, candidatos.slice(0, SAFE_LIST_MAX), t('productos_select_header'));
     await setState(from, 'awaiting_consulta');
@@ -538,10 +542,11 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     return true;
   }
 
-  // Si no hace falta preguntar más, mostramos TODO (si entra) o hasta el máximo permitido
+  // Sin más preguntas → mostrar lista final
   if (candidatos.length <= SAFE_LIST_MAX) {
     await sendWhatsAppText(from, t('mostrando_todos', { total: candidatos.length }));
     await sendProductsList(from, candidatos, t('productos_select_header'));
+    await sendGptQuickReply(from, consulta, validos);
   } else {
     await sendWhatsAppText(from, t('muchos_resultados', { total: candidatos.length, max: SAFE_LIST_MAX, shown: SAFE_LIST_MAX }));
     await sendProductsList(from, candidatos.slice(0, SAFE_LIST_MAX), t('productos_select_header'));
@@ -575,7 +580,7 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   if (type === 'pack')    newSignals.packs   = Array.from(new Set([...(newSignals.packs||[]), value]));
   if (type === 'active')  newSignals.actives = Array.from(new Set([...(newSignals.actives||[]), value]));
 
-  // 🆕 Limpio SOLO 'disambig' (preservo reco, asked, hops, etc.)
+  // limpiar SOLO 'disambig'
   await clearPendingKey(from, 'disambig');
   await setState(from, 'awaiting_consulta');
 
@@ -595,7 +600,6 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
     negate: Array.from(new Set([...(prev?.tokens?.negate || [])]))
   };
 
-  // Blindaje: marcamos "asked" también al responder
   const newAsked = Array.from(new Set([...(prev?.asked || []), type]));
 
   await setReco(from, {
