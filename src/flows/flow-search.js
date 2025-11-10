@@ -3,9 +3,7 @@ import { t } from '../config/texts.js';
 import { sendWhatsAppText, sendWhatsAppContacts } from '../services/whatsappService.js';
 import { ADMIN_PHONE_DIGITS } from '../config/app.js';
 
-import {
-  extraerTerminosBusqueda
-} from '../services/gptService.js';
+import { extraerTerminosBusqueda } from '../services/gptService.js';
 
 import {
   openProductDetail,
@@ -20,6 +18,8 @@ import {
 import { detectarIntent } from '../services/intentService.js';
 import { getVetByCuit } from '../services/userService.js';
 
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 export async function resetRecoUI(from) {
   try { await resetRecoContext(from); } catch {}
 }
@@ -33,9 +33,11 @@ function isFreshSearch(prevReco, consulta = '') {
   return hasVerb || killsMust || cameFromMenu;
 }
 
-// “prod:<id>” y desambiguación
+// “disambig:*”
 export async function tryHandleDisambig(from, normText) {
   if ((normText || '').startsWith('disambig:')) {
+    await sendWhatsAppText(from, '🤔 Ajustando tu búsqueda…');
+    await delay(500);
     await handleDisambigAnswer(from, normText);
     return true;
   }
@@ -72,12 +74,20 @@ async function handleConsulta(from, nombre, consulta) {
   }
 
   await setState(from, 'awaiting_consulta');
+
+  // 🕵️ Mensaje de “buscando” antes de resolver recomendaciones
+  await sendWhatsAppText(from, '🔎 Buscando opciones para vos…');
+  await delay(700);
+
   await runDisambiguationOrRecommend({ from, nombre, consulta });
 }
 
 export async function handle({ from, state, normText, vet, nombre }) {
   // Abrir ficha por “prod:<id>”
   if ((normText || '').startsWith('prod:')) {
+    await sendWhatsAppText(from, '🔎 Abriendo ficha…');
+    await delay(600);
+
     const pid = Number(String(normText).split(':')[1]);
     const ok = await openProductDetail(from, pid);
     if (ok) {

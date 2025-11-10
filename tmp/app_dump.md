@@ -1,6 +1,6 @@
 # Dump técnico de módulos App
 
-> Generado desde `src` — 10/11/2025, 02:10:45
+> Generado desde `src` — 10/11/2025, 03:36:10
 
 
 ---
@@ -17,7 +17,7 @@ export const ADMIN_PHONE_DIGITS = process.env.ADMIN_PHONE_DIGITS || '54922163742
 
 ---
 
-### src/config/texts.js (151 líneas)
+### src/config/texts.js (166 líneas)
 
 ```js
 // src/config/texts.js
@@ -45,9 +45,10 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   refinar_follow:
     'Podés seguir afinando: sumá marca, presentación, especie o compuesto activo. Si preferís, escribí "menú".',
 
-  // 🆕 Mensajes de listado “completo” o truncado por límite de WhatsApp
+  // Mensajes de listado “completo” o truncado por límite de WhatsApp
   mostrando_todos: 'Encontré {total} producto(s). Te muestro todos:',
-  muchos_resultados: 'Encontré {total} productos. WhatsApp permite listar hasta {max} por mensaje. Te muestro {shown}. Podés refinar por *marca* (ej. “marca X”), *presentación* (pipeta/comprimido) o *peso*.',
+  muchos_resultados:
+    'Encontré {total} productos. WhatsApp permite listar hasta {max} por mensaje. Te muestro {shown}. Podés refinar por *marca* (ej. “marca X”), *presentación* (pipeta/comprimido) o *peso*.',
 
   reco_pedir_especie: '¿Para qué especie lo buscás?',
 
@@ -103,16 +104,30 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
 
   /* ====== Edición de datos ====== */
   editar_intro: 'Podés actualizar tus datos. ¿Qué querés cambiar?',
+  // Menú “Mis datos”
+  editar_menu_title: 'KaIA – Mis datos',
+  editar_menu_body: 'Elegí qué querés actualizar:',
+  editar_menu_btn: 'Elegí',
+
+  // Nombre
   editar_pedir_nombre:
     'Decime tu nombre tal como querés que figure (por ejemplo: “Clínica San Martín”).',
-  editar_confirmar_nombre:
-    'Vas a cambiar tu nombre a:\n“{valor}”\n\n¿Confirmás el cambio?',
+  editar_status_nombre: 'Tu nombre actual es: “{actual}”.',
+  editar_confirmar_nombre_full:
+    'Vas a cambiar tu nombre de:\n“{actual}” → “{valor}”\n\n¿Confirmás el cambio?',
   editar_ok_nombre: '¡Hecho, {nombre}! Actualicé tu nombre. ✍️',
+
+  // Email
   editar_pedir_email: 'Decime tu email (ej: ejemplo@dominio.com).',
-  editar_confirmar_email:
-    'Vas a cambiar tu email a:\n“{valor}”\n\n¿Confirmás el cambio?',
+  editar_status_email: 'Tu email actual es: “{actual}”.',
+  editar_confirmar_email_full:
+    'Vas a cambiar tu email de:\n“{actual}” → “{valor}”\n\n¿Confirmás el cambio?',
   editar_ok_email: 'Perfecto {nombre}, guardé tu email {email}. 📧',
   editar_email_invalido: 'Ese email no parece válido. Probá de nuevo (ej: ejemplo@dominio.com).',
+
+  // (legacy)
+  editar_confirmar_nombre: 'Vas a cambiar tu nombre a:\n“{valor}”\n\n¿Confirmás el cambio?',
+  editar_confirmar_email: 'Vas a cambiar tu email a:\n“{valor}”\n\n¿Confirmás el cambio?',
 
   /* ====== Logout ====== */
   logout_confirm:
@@ -132,7 +147,7 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   escala_ejecutivo:
     'Te comparto el contacto de tu ejecutivo de cuentas **{ejecutivo}** para que continúen por ahí. 👇',
 
-  // 🆕 Derivaciones post-ficha
+  // Derivaciones post-ficha
   handoff_ejecutivo:
     'Si querés cerrarlo ya, escribile a tu ejecutivo **{ejecutivo}**: wa.me/{telefono}',
   handoff_admin:
@@ -1517,7 +1532,7 @@ export async function recomendarProducto(req, res) {
 
 ---
 
-### src/controllers/webhookController.js (151 líneas)
+### src/controllers/webhookController.js (152 líneas)
 
 ```js
 // src/controllers/webhookController.js
@@ -1568,6 +1583,7 @@ export async function handleWhatsAppMessage(req, res) {
 
     for (const { from, text } of messages) {
       const normText = sanitizeText(text || '');
+      console.log(`[RX][text] from=${from} :: ${text || ''}`);
       let session = await getOrCreateSession(from);
       await ensureExpiry(session);
       await bumpLastInteraction(from);
@@ -1968,66 +1984,154 @@ export async function handleAuthGate({ from, normText }) {
 
 ---
 
-### src/flows/flow-edit.js (98 líneas)
+### src/flows/flow-edit.js (187 líneas)
 
 ```js
 // src/flows/flow-edit.js
-import { sendWhatsAppText } from '../services/whatsappService.js';
-import { showConfirmList } from '../services/wabaUiService.js';
+import { sendWhatsAppText, sendWhatsAppButtons, sendWhatsAppList } from '../services/whatsappService.js';
 import { t } from '../config/texts.js';
 import { isValidEmail, updateVetEmail, updateVetName } from '../services/userService.js';
 import { detectarIntent } from '../services/intentService.js';
 import { setState, getState, setPending, getPending, clearPending } from '../services/waSessionService.js';
 
+/** UI helpers */
+async function showEditMenu(from) {
+  await sendWhatsAppList(
+    from,
+    t('editar_menu_body'),
+    [{
+      title: t('editar_menu_title'),
+      rows: [
+        { id: 'editar_nombre', title: 'Cambiar nombre', description: 'Actualizá cómo te llamamos' },
+        { id: 'editar_email',  title: 'Cambiar email',  description: 'Actualizá tu correo' },
+        { id: 'volver',        title: t('btn_volver') }
+      ]
+    }],
+    t('editar_menu_title'),
+    t('editar_menu_btn')
+  );
+}
+
+async function showBackCancelButtons(from) {
+  await sendWhatsAppButtons(from, 'También podés volver o cancelar:', [
+    { id: 'volver',      title: t('btn_volver') },
+    { id: 'confirm_no',  title: t('btn_cancelar') }
+  ]);
+}
+
+async function showConfirm3(from, body) {
+  // Confirmar / Volver / Cancelar — usando lista para 3 opciones
+  await sendWhatsAppList(
+    from,
+    body,
+    [{
+      title: 'Confirmar cambio',
+      rows: [
+        { id: 'confirm.si', title: t('btn_confirmar') },
+        { id: 'volver',     title: t('btn_volver') },
+        { id: 'confirm.no', title: t('btn_cancelar') }
+      ]
+    }],
+    'Confirmar',
+    t('btn_elegi')
+  );
+}
+
 export async function handle({ from, intent, normText, vet, nombre }) {
   const state = await getState(from);
   const pending = await getPending(from);
 
-  // Entrada por menú “editar”
+  // Entrada por menú “editar” o selección directa
   if (intent === 'editar') {
     await sendWhatsAppText(from, t('editar_intro'));
-    await sendWhatsAppText(from, '• *Nombre*: escribí "editar nombre"\n• *Email*: escribí "editar email"');
+    await showEditMenu(from);
     return true;
   }
 
   // Pedidos explícitos
   if (intent === 'editar_nombre') {
     await setState(from, 'awaiting_nombre_value');
+    await sendWhatsAppText(from, t('editar_status_nombre', { actual: vet?.nombre || '—' }));
     await sendWhatsAppText(from, t('editar_pedir_nombre'));
+    await showBackCancelButtons(from);
     return true;
   }
   if (intent === 'editar_email') {
     await setState(from, 'awaiting_email_value');
+    await sendWhatsAppText(from, t('editar_status_email', { actual: vet?.email || '—' }));
     await sendWhatsAppText(from, t('editar_pedir_email'));
+    await showBackCancelButtons(from);
     return true;
   }
 
-  // Captura de valores
+  // Captura: NOMBRE
   if (state === 'awaiting_nombre_value') {
-    const nuevo = String(normText || '').slice(0, 120);
-    if (!nuevo) { await sendWhatsAppText(from, t('editar_pedir_nombre')); return true; }
-    await setPending(from, { action: 'edit_nombre', value: nuevo, prev: { state } });
+    const i2 = detectarIntent(normText);
+    if (i2 === 'confirm_no' || i2 === 'volver') {
+      await clearPending(from);
+      await setState(from, 'awaiting_consulta');
+      await sendWhatsAppText(from, t('cancelado'));
+      return true;
+    }
+
+    const nuevo = String(normText || '').slice(0, 120).trim();
+    if (!nuevo) {
+      await sendWhatsAppText(from, t('editar_pedir_nombre'));
+      await showBackCancelButtons(from);
+      return true;
+    }
+
+    await setPending(from, { action: 'edit_nombre', value: nuevo, prevValue: vet?.nombre || '—', prev: { state } });
     await setState(from, 'confirm');
-    await showConfirmList(from, t('editar_confirmar_nombre', { valor: nuevo }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
+    await showConfirm3(from, t('editar_confirmar_nombre_full', { actual: vet?.nombre || '—', valor: nuevo }));
     return true;
   }
 
+  // Captura: EMAIL
   if (state === 'awaiting_email_value') {
-    const email = String(normText || '');
-    if (!isValidEmail(email)) { await sendWhatsAppText(from, t('editar_email_invalido')); return true; }
-    await setPending(from, { action: 'edit_email', value: email, prev: { state } });
+    const i2 = detectarIntent(normText);
+    if (i2 === 'confirm_no' || i2 === 'volver') {
+      await clearPending(from);
+      await setState(from, 'awaiting_consulta');
+      await sendWhatsAppText(from, t('cancelado'));
+      return true;
+    }
+
+    const email = String(normText || '').trim();
+    if (!isValidEmail(email)) {
+      await sendWhatsAppText(from, t('editar_email_invalido'));
+      await showBackCancelButtons(from);
+      return true;
+    }
+
+    await setPending(from, { action: 'edit_email', value: email, prevValue: vet?.email || '—', prev: { state } });
     await setState(from, 'confirm');
-    await showConfirmList(from, t('editar_confirmar_email', { valor: email }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
+    await showConfirm3(from, t('editar_confirmar_email_full', { actual: vet?.email || '—', valor: email }));
     return true;
   }
 
-  // Confirmaciones
+  // Confirmaciones (3 opciones)
   if (state === 'confirm') {
     const confirmIntent = detectarIntent(normText);
-    const isNo  = confirmIntent === 'confirm_no' || normText === 'confirm.no';
-    const isYes = confirmIntent === 'confirm_si' || normText === 'confirm.si';
+    const isNo   = confirmIntent === 'confirm_no' || normText === 'confirm.no';
+    const isYes  = confirmIntent === 'confirm_si' || normText === 'confirm.si';
+    const isBack = confirmIntent === 'volver'     || normText === 'volver';
 
     if (!pending) return false;
+
+    if (isBack) {
+      const backState = pending.action === 'edit_email' ? 'awaiting_email_value' : 'awaiting_nombre_value';
+      await setState(from, backState);
+      if (backState === 'awaiting_email_value') {
+        await sendWhatsAppText(from, t('editar_status_email', { actual: pending.prevValue || '—' }));
+        await sendWhatsAppText(from, t('editar_pedir_email'));
+      } else {
+        await sendWhatsAppText(from, t('editar_status_nombre', { actual: pending.prevValue || '—' }));
+        await sendWhatsAppText(from, t('editar_pedir_nombre'));
+      }
+      await showBackCancelButtons(from);
+      return true;
+    }
 
     if (isNo) {
       await setState(from, pending.prev?.state || 'awaiting_consulta');
@@ -2055,17 +2159,18 @@ export async function handle({ from, intent, normText, vet, nombre }) {
       }
     }
 
-    // Re-mostrar confirmación acorde a la acción pendiente
+    // Si escribió otra cosa, re-mostramos la confirmación
     if (pending.action === 'edit_nombre') {
-      await showConfirmList(from, t('editar_confirmar_nombre', { valor: pending.value }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
+      await showConfirm3(from, t('editar_confirmar_nombre_full', { actual: pending.prevValue || '—', valor: pending.value }));
       return true;
     }
     if (pending.action === 'edit_email') {
-      await showConfirmList(from, t('editar_confirmar_email', { valor: pending.value }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
+      await showConfirm3(from, t('editar_confirmar_email_full', { actual: pending.prevValue || '—', valor: pending.value }));
       return true;
     }
   }
 
+  // Si llega texto suelto y no estamos capturando/confirmando, no tomamos control
   return false;
 }
 
@@ -2108,6 +2213,87 @@ export async function handle({ from, intent, normText }) {
 
   return false;
 }
+```
+
+---
+
+### src/flows/flow-logout.js (74 líneas)
+
+```js
+// src/flows/flow-logout.js
+import { sendWhatsAppText, sendWhatsAppList } from '../services/whatsappService.js';
+import { t } from '../config/texts.js';
+import { detectarIntent } from '../services/intentService.js';
+import {
+  setState,
+  getState,
+  setPending,
+  getPending,
+  clearPending,
+  logout as doLogout
+} from '../services/waSessionService.js';
+
+async function showConfirmLogout(from) {
+  await sendWhatsAppList(
+    from,
+    t('logout_confirm'),
+    [{
+      title: 'Cerrar sesión',
+      rows: [
+        { id: 'confirm.si', title: t('btn_confirmar') },
+        { id: 'volver',     title: t('btn_volver') },
+        { id: 'confirm.no', title: t('btn_cancelar') }
+      ]
+    }],
+    'Confirmar',
+    t('btn_elegi')
+  );
+}
+
+export async function handle({ from, intent, normText, nombre }) {
+  const state = await getState(from);
+  const pending = await getPending(from);
+
+  // Inicio del flujo de logout
+  if (intent === 'logout') {
+    await setPending(from, { action: 'logout', prev: { state } });
+    await setState(from, 'confirm_logout');
+    await showConfirmLogout(from);
+    return true;
+  }
+
+  // Estado de confirmación
+  if (state === 'confirm_logout' && pending?.action === 'logout') {
+    const i = detectarIntent(normText);
+    const isNo   = i === 'confirm_no' || normText === 'confirm.no';
+    const isYes  = i === 'confirm_si' || normText === 'confirm.si';
+    const isBack = i === 'volver'     || normText === 'volver';
+
+    // Volver o Cancelar → no se cierra sesión
+    if (isBack || isNo) {
+      await setState(from, 'awaiting_consulta');
+      await clearPending(from);
+      await sendWhatsAppText(from, t('cancelado'));
+      return true;
+    }
+
+    // Confirmar → cerrar sesión
+    if (isYes) {
+      await doLogout(from);
+      await clearPending(from);
+      // No seteamos estado a propósito: la próxima interacción pedirá verificación/CUIT
+      await sendWhatsAppText(from, t('logout_ok', { nombre }));
+      return true;
+    }
+
+    // Entrada desconocida → re-mostrar confirmación
+    await showConfirmLogout(from);
+    return true;
+  }
+
+  return false;
+}
+
 ```
 
 ---
@@ -2914,7 +3100,7 @@ export {
 
 ---
 
-### src/services/disambiguationService.js (611 líneas)
+### src/services/disambiguationService.js (615 líneas)
 
 ```js
 // src/services/disambiguationService.js
@@ -2925,7 +3111,7 @@ import { t } from '../config/texts.js';
 import {
   getReco, setReco, incRecoFail, resetRecoFail,
   setState, getState, setPending, getPending,
-  clearPendingKey // 🆕 limpiar solo 'disambig'
+  clearPendingKey // limpiar solo 'disambig'
 } from './waSessionService.js';
 import {
   sendWhatsAppText,
@@ -2941,11 +3127,10 @@ let openai = null;
 if (process.env.OPENAI_API_KEY) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ===== Config =====
-const FIRST_LIST_THRESHOLD = Number(process.env.RECO_FIRST_LIST_THRESHOLD || 6); // si <6: listar directo
-const MAX_HOPS             = Number(process.env.RECO_MAX_HOPS || 2);            // desambiguaciones “normales” permitidas
-
-// ⚠️ Límite duro para filas de WhatsApp (evitar 131009)
-const SAFE_LIST_MAX        = Number(process.env.RECO_SAFE_LIST_MAX || 10);
+const FIRST_LIST_THRESHOLD = Number(process.env.RECO_FIRST_LIST_THRESHOLD || 10); // si ≤10: listar directo
+const MAX_HOPS             = Number(process.env.RECO_MAX_HOPS || 2);             // desambiguaciones “normales”
+const SAFE_LIST_MAX        = Number(process.env.RECO_SAFE_LIST_MAX || 10);       // límite duro WABA
+const GPT_SUMMARY_ON_SMALL = process.env.RECO_GPT_SUMMARY_ON_SMALL !== '0';      // opcional
 
 // ====== Utils de normalización / parse ======
 const RX = {
@@ -3033,7 +3218,7 @@ async function extraerSenalesRicas(query) {
   }
 }
 
-// ====== Agrupación de variantes y plan de desambiguación ======
+// ====== Agrupación y plan de desambiguación ======
 function baseKey(p) {
   let t = `${NORM(p.marca)} ${NORM(p.nombre)} ${NORM(p.presentacion)}`;
   t = t.replace(RX.range, ' ')
@@ -3078,7 +3263,6 @@ function analyzeVariantDimensions(productos = []) {
   return { groups, needs, sets };
 }
 
-// Elegir qué preguntar primero, evitando repetir lo ya preguntado o ya definido
 function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] }) {
   const explicitSpecies = hardSpeciesInQuery(consulta);
   const especie = signals.species || explicitSpecies || null;
@@ -3086,23 +3270,18 @@ function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] })
   const isPipeta = looksLikePipeta(consulta, tokens) || forma === 'pipeta';
 
   const { needs, sets } = analyzeVariantDimensions(productos);
-
   const already = new Set(asked || []);
 
-  // ¿Qué especies aparecen en los candidatos?
   const txt = NORM(productos.map(p => `${p.nombre} ${p.presentacion} ${p.familia} ${p.rubro} ${p.observaciones||''}`).join(' | '));
   const hayGato  = RX.especie_gato.test(txt);
   const hayPerro = RX.especie_perro.test(txt);
 
-  // 1) Si hay gato y perro en candidatos y no tenemos especie → preguntar especie primero
   if (!especie && !already.has('species')) {
     if (hayGato && hayPerro) {
       return { type: 'species', title: t('desambig_species_header'), body: t('desambig_species_body') };
     }
   }
 
-  // 2) Pipetas: si hay variantes por peso y no tenemos peso → preguntar peso
-  //    Para el copy, si no definió especie, usamos la que “predomina” en candidatos.
   const especieBody = especie || (hayGato && !hayPerro ? 'gato' : hayPerro && !hayGato ? 'perro' : null);
 
   if (isPipeta && needs.peso && !signals.weight_hint && !already.has('weight')) {
@@ -3125,7 +3304,6 @@ function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] })
     return { type: 'brand', title: t('desambig_brand_header'), body: t('desambig_brand_body') };
   }
 
-  // Fallback por diversidad
   const diversity = [
     { key: 'peso',  size: sets.peso.size,  type: 'weight', title: t('desambig_peso_header'),  body: (especieBody === 'gato') ? t('desambig_peso_body_gato') : t('desambig_peso_body_perro') },
     { key: 'marca', size: sets.marca.size, type: 'brand',  title: t('desambig_brand_header'), body: t('desambig_brand_body') },
@@ -3233,10 +3411,23 @@ export async function openProductDetail(from, productId) {
   return true;
 }
 
+// ===== Quick summary GPT cuando el universo es chico =====
+async function sendGptQuickReply(from, consulta, productosValidos = []) {
+  if (!GPT_SUMMARY_ON_SMALL) return;
+  try {
+    if (!productosValidos?.length) return;
+    const texto = await responderConGPTStrict(consulta, {
+      productosValidos: productosValidos.slice(0, 3), // Top 1–3
+      similares: []
+    });
+    if (texto && texto.trim()) await sendWhatsAppText(from, texto.trim());
+  } catch (_) {}
+}
+
 // ===== Lista de productos (capada a 10 filas) =====
 export async function sendProductsList(from, productos, header = null) {
   if (!productos?.length) return;
-  const prods = productos.slice(0, SAFE_LIST_MAX); // ← capar a 10
+  const prods = productos.slice(0, SAFE_LIST_MAX);
   const rows = prods.map(p => ({
     id: `prod:${p.id}`,
     title: String(p.nombre || 'Producto').slice(0, 24),
@@ -3265,7 +3456,6 @@ function scrubSpuriousSpeciesTokens(mergedTokens, consulta, signals) {
 
 // ====== API principal (muestra lista primero) ======
 export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
-  // Estado previo
   const prev = await getReco(from);
 
   // 1) Tokens desde texto + merge con prev
@@ -3292,7 +3482,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
   // 3) No asumir especie si no fue explícita ni está lockeada
   mergedTokens = scrubSpuriousSpeciesTokens(mergedTokens, consulta, signals);
 
-  // Guardamos contexto actualizado (tokens + signals)
+  // Guardamos contexto actualizado
   await setReco(from, { tokens: mergedTokens, lastQuery: consulta, signals });
 
   // 4) Buscar candidatos
@@ -3327,22 +3517,23 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
   const hops = prev.hops || 0;
   const asked = prev.asked || [];
 
-  // Si queda 1 solo candidato → devolvemos FICHA + GPT directamente
+  // 1 candidato → ficha + GPT
   if (candidatos.length === 1) {
     await openProductDetail(from, candidatos[0].id);
     await setState(from, 'awaiting_consulta');
     return true;
   }
 
-  // REGLA 1: si hay pocos candidatos, listar TODO (cap a 10 por WABA)
+  // REGLA 1: pocos candidatos → listar TODO (cap a 10) + mini-resumen GPT
   if (candidatos.length <= FIRST_LIST_THRESHOLD) {
     await sendWhatsAppText(from, t('mostrando_todos', { total: Math.min(candidatos.length, SAFE_LIST_MAX) }));
     await sendProductsList(from, candidatos, t('productos_select_header'));
     await setState(from, 'awaiting_consulta');
+    await sendGptQuickReply(from, consulta, validos);
     return true;
   }
 
-  // Si hay muchos, vemos si aún conviene desambiguar
+  // Muchos: ¿conviene desambiguar?
   let question = pickFirstQuestion({
     signals,
     tokens: mergedTokens,
@@ -3351,17 +3542,17 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     asked
   });
 
-  // REGLA 2: si ya alcanzamos el máximo de desambiguaciones “normales”
+  // REGLA 2: máximo de hops “normales”
   if (hops >= MAX_HOPS) {
-    // Si entran en un único mensaje seguro → listamos (cap a SAFE_LIST_MAX)
     if (candidatos.length <= SAFE_LIST_MAX) {
       await sendWhatsAppText(from, t('mostrando_todos', { total: candidatos.length }));
       await sendProductsList(from, candidatos, t('productos_select_header'));
       await setState(from, 'awaiting_consulta');
+      await sendGptQuickReply(from, consulta, validos);
       return true;
     }
 
-    // Intentamos UNA pregunta extra “inteligente” para bajar el universo.
+    // Una pregunta extra “inteligente”
     if (question) {
       const { groups } = analyzeVariantDimensions(candidatos);
       const opts = new Set();
@@ -3393,7 +3584,6 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
           opciones: rows.map(r => r.id)
         }
       });
-      // marcamos que ya preguntamos este tipo (no cuenta como hop “normal”)
       await setReco(from, { asked: Array.from(new Set([...(asked||[]), question.type])) });
 
       await sendWhatsAppList(
@@ -3406,7 +3596,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
       return true;
     }
 
-    // Si no hay pregunta útil, mostramos hasta el máximo y avisamos cómo refinar
+    // Sin pregunta útil → mostrar hasta el máximo y sugerir refinar
     await sendWhatsAppText(from, t('muchos_resultados', { total: candidatos.length, max: SAFE_LIST_MAX, shown: SAFE_LIST_MAX }));
     await sendProductsList(from, candidatos.slice(0, SAFE_LIST_MAX), t('productos_select_header'));
     await setState(from, 'awaiting_consulta');
@@ -3457,10 +3647,11 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     return true;
   }
 
-  // Si no hace falta preguntar más, mostramos TODO (si entra) o hasta el máximo permitido
+  // Sin más preguntas → mostrar lista final
   if (candidatos.length <= SAFE_LIST_MAX) {
     await sendWhatsAppText(from, t('mostrando_todos', { total: candidatos.length }));
     await sendProductsList(from, candidatos, t('productos_select_header'));
+    await sendGptQuickReply(from, consulta, validos);
   } else {
     await sendWhatsAppText(from, t('muchos_resultados', { total: candidatos.length, max: SAFE_LIST_MAX, shown: SAFE_LIST_MAX }));
     await sendProductsList(from, candidatos.slice(0, SAFE_LIST_MAX), t('productos_select_header'));
@@ -3494,7 +3685,7 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   if (type === 'pack')    newSignals.packs   = Array.from(new Set([...(newSignals.packs||[]), value]));
   if (type === 'active')  newSignals.actives = Array.from(new Set([...(newSignals.actives||[]), value]));
 
-  // 🆕 Limpio SOLO 'disambig' (preservo reco, asked, hops, etc.)
+  // limpiar SOLO 'disambig'
   await clearPendingKey(from, 'disambig');
   await setState(from, 'awaiting_consulta');
 
@@ -3514,7 +3705,6 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
     negate: Array.from(new Set([...(prev?.tokens?.negate || [])]))
   };
 
-  // Blindaje: marcamos "asked" también al responder
   const newAsked = Array.from(new Set([...(prev?.asked || []), type]));
 
   await setReco(from, {
@@ -3646,7 +3836,7 @@ export async function extraerTerminosBusqueda(query) {
 
 ---
 
-### src/services/intentService.js (99 líneas)
+### src/services/intentService.js (103 líneas)
 
 ```js
 // src/services/intentService.js
@@ -3660,17 +3850,15 @@ export async function extraerTerminosBusqueda(query) {
  * 'feedback_ok' | 'feedback_meh' | 'feedback_txt'
  */
 
-// 👇 Normalizador robusto: saca tildes, caracteres invisibles (ZW*, LRM, etc.), colapsa espacios
 export function sanitizeText(input = '') {
   return String(input)
     .normalize('NFKD')
     .replace(/\p{Diacritic}/gu, '')
-    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g, '') // ZW* y format chars
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-// 👇 Heurística de saludo “suelto” (hola/holis/buenas/hey/hi) ya normalizado
 export function isLikelyGreeting(s = '') {
   const x = sanitizeText(s).toLowerCase();
   return (
@@ -3690,10 +3878,12 @@ const RX = {
   editar: /(editar|actualizar|cambiar)\s+(mis\s+)?(datos|perfil)/i,
   editar_nombre: /(cambi(ar|o)\s+)?(mi\s+)?nombre|actualizar\s+nombre/i,
   editar_email: /(cambi(ar|o)\s+)?(mi\s+)?email|correo|mail/i,
-  logout: /(cerrar\s+sesion|cerrar\s+sesión|logout|salir|deslogue(ar|arse)|cerrar)$/i,
+  // ⚠️ quitamos “salir” del logout para que actúe como “volver”
+  logout: /(cerrar\s+sesion|cerrar\s+sesión|logout|deslogue(ar|arse)|cerrar)$/i,
   confirm_si: /^(si|sí|s|ok|dale|confirmo|acepto|afirmativo)$/i,
   confirm_no: /^(no|n|cancelar|negativo)$/i,
-  volver: /(volver|atras|atrás|anterior|retroceder)$/i,
+  // “salir” ahora es sinónimo de volver
+  volver: /(volver|atras|atrás|anterior|retroceder|salir)$/i,
   promos: /\b(promo(?:s)?|oferta(?:s)?)\b/i,
   buscar: /^(buscar|consulta|producto|recomendar)$/i
 };
@@ -3704,20 +3894,24 @@ const BUTTON_IDS = new Map([
   ['editar', 'editar'],
   ['editar_nombre', 'editar_nombre'],
   ['editar_email', 'editar_email'],
+
   ['logout', 'logout'],
+
   ['cancelar', 'confirm_no'],
   ['confirm_yes', 'confirm_si'],
   ['confirm_no', 'confirm_no'],
+
   ['back', 'volver'],
   ['volver', 'volver'],
-  // 🚫 quitamos 'ver_mas'
+
   ['perro', 'species_perro'],
   ['gato',  'species_gato'],
+
   ['fb_ok',  'feedback_ok'],
   ['fb_meh', 'feedback_meh'],
   ['fb_txt', 'feedback_txt'],
 
-  // Items de lista "main.*" mapeados
+  // Items de lista “main.*” (por si llegan desde menú principal)
   ['main.buscar', 'buscar'],
   ['main.promos', 'promos'],
   ['main.editar', 'editar'],
@@ -4455,37 +4649,70 @@ export function extractIncomingMessages(body) {
 
 ---
 
-### src/services/wabaUiService.js (30 líneas)
+### src/services/wabaUiService.js (63 líneas)
 
 ```js
 // src/services/wabaUiService.js
-import { sendWhatsAppList } from './whatsappService.js';
+import { sendWhatsAppList, sendWhatsAppButtons } from './whatsappService.js';
 import { t } from '../config/texts.js';
 
-export async function showMainMenu(from, nombre = '') {
-  const body = t('menu_main_body');
-  const sections = [{
-    title: t('menu_main_title'),
-    rows: [
-      { id: 'main.buscar',  title: t('menu_item_buscar_title'), description: t('menu_item_buscar_desc') },
-      { id: 'main.promos',  title: t('menu_item_promos_title'), description: t('menu_item_promos_desc') },
-      { id: 'main.editar',  title: t('menu_item_editar_title'), description: t('menu_item_editar_desc') },
-      { id: 'main.logout',  title: t('menu_item_logout_title'), description: t('menu_item_logout_desc') }
-    ]
-  }];
-  const header = nombre ? t('saludo_header', { nombre }) : t('menu_main_title');
-  await sendWhatsAppList(from, body, sections, header, t('btn_elegi'));
+/**
+ * Menú principal (con List)
+ */
+export async function showMainMenu(to, nombre = '') {
+  await sendWhatsAppList(
+    to,
+    t('menu_main_body'),
+    [{
+      title: t('menu_main_title'),
+      rows: [
+        { id: 'main.buscar', title: t('menu_item_buscar_title'), description: t('menu_item_buscar_desc') },
+        { id: 'main.promos', title: t('menu_item_promos_title'), description: t('menu_item_promos_desc') },
+        { id: 'main.editar', title: t('menu_item_editar_title'), description: t('menu_item_editar_desc') },
+        { id: 'main.logout', title: t('menu_item_logout_title'), description: t('menu_item_logout_desc') }
+      ]
+    }],
+    t('menu_main_title', { nombre }),
+    t('menu_main_btn')
+  );
 }
 
-export async function showConfirmList(from, body, yesId = 'confirm.si', noId = 'confirm.no', header = 'Confirmar') {
-  const sections = [{
-    title: 'Confirmación',
-    rows: [
-      { id: yesId, title: t('btn_confirmar') },
-      { id: noId , title: t('btn_cancelar') }
-    ]
-  }];
-  await sendWhatsAppList(from, body, sections, header, t('btn_elegi'));
+/**
+ * Menú de edición de datos (Nombre / Email / Volver / Cancelar)
+ */
+export async function showEditMenu(to, { currentName = '—', currentEmail = '—' } = {}) {
+  const body =
+    `${t('editar_menu_body')}\n\n` +
+    `📇 Nombre: “${currentName}”\n` +
+    `📧 Email: “${currentEmail}”`;
+
+  await sendWhatsAppList(
+    to,
+    body,
+    [{
+      title: t('editar_menu_title'),
+      rows: [
+        { id: 'editar_nombre', title: 'Cambiar nombre', description: 'Actualizar cómo querés que figure' },
+        { id: 'editar_email',  title: 'Cambiar email',  description: 'Recibir novedades y presupuestos' },
+        { id: 'volver',        title: 'Volver',         description: 'Salir sin cambiar' },
+        { id: 'cancelar',      title: 'Cancelar',       description: 'Anular esta acción' }
+      ]
+    }],
+    t('editar_menu_header'),
+    t('editar_menu_btn')
+  );
+}
+
+/**
+ * Confirmación con 3 opciones: Confirmar / Volver / Cancelar
+ * yesId/noId son los IDs “exactos” que esperás (ej: 'confirm.si', 'confirm.no')
+ */
+export async function showConfirmList(to, body, yesId = 'confirm.si', noId = 'confirm.no', title = t('confirm_title')) {
+  await sendWhatsAppButtons(to, body, [
+    { id: yesId,     title: t('btn_confirmar') },
+    { id: 'volver',  title: t('btn_volver') },
+    { id: noId,      title: t('btn_cancelar') }
+  ], title);
 }
 
 ```

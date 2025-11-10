@@ -9,17 +9,15 @@
  * 'feedback_ok' | 'feedback_meh' | 'feedback_txt'
  */
 
-// 👇 Normalizador robusto: saca tildes, caracteres invisibles (ZW*, LRM, etc.), colapsa espacios
 export function sanitizeText(input = '') {
   return String(input)
     .normalize('NFKD')
     .replace(/\p{Diacritic}/gu, '')
-    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g, '') // ZW* y format chars
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-// 👇 Heurística de saludo “suelto” (hola/holis/buenas/hey/hi) ya normalizado
 export function isLikelyGreeting(s = '') {
   const x = sanitizeText(s).toLowerCase();
   return (
@@ -39,10 +37,12 @@ const RX = {
   editar: /(editar|actualizar|cambiar)\s+(mis\s+)?(datos|perfil)/i,
   editar_nombre: /(cambi(ar|o)\s+)?(mi\s+)?nombre|actualizar\s+nombre/i,
   editar_email: /(cambi(ar|o)\s+)?(mi\s+)?email|correo|mail/i,
-  logout: /(cerrar\s+sesion|cerrar\s+sesión|logout|salir|deslogue(ar|arse)|cerrar)$/i,
+  // ⚠️ quitamos “salir” del logout para que actúe como “volver”
+  logout: /(cerrar\s+sesion|cerrar\s+sesión|logout|deslogue(ar|arse)|cerrar)$/i,
   confirm_si: /^(si|sí|s|ok|dale|confirmo|acepto|afirmativo)$/i,
   confirm_no: /^(no|n|cancelar|negativo)$/i,
-  volver: /(volver|atras|atrás|anterior|retroceder)$/i,
+  // “salir” ahora es sinónimo de volver
+  volver: /(volver|atras|atrás|anterior|retroceder|salir)$/i,
   promos: /\b(promo(?:s)?|oferta(?:s)?)\b/i,
   buscar: /^(buscar|consulta|producto|recomendar)$/i
 };
@@ -53,20 +53,24 @@ const BUTTON_IDS = new Map([
   ['editar', 'editar'],
   ['editar_nombre', 'editar_nombre'],
   ['editar_email', 'editar_email'],
+
   ['logout', 'logout'],
+
   ['cancelar', 'confirm_no'],
   ['confirm_yes', 'confirm_si'],
   ['confirm_no', 'confirm_no'],
+
   ['back', 'volver'],
   ['volver', 'volver'],
-  // 🚫 quitamos 'ver_mas'
+
   ['perro', 'species_perro'],
   ['gato',  'species_gato'],
+
   ['fb_ok',  'feedback_ok'],
   ['fb_meh', 'feedback_meh'],
   ['fb_txt', 'feedback_txt'],
 
-  // Items de lista "main.*" mapeados
+  // Items de lista “main.*” (por si llegan desde menú principal)
   ['main.buscar', 'buscar'],
   ['main.promos', 'promos'],
   ['main.editar', 'editar'],

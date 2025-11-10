@@ -1,9 +1,13 @@
 // src/controllers/webhookController.js
 import 'dotenv/config';
 
-import { sendWhatsAppText, sendWhatsAppButtons, sendWhatsAppContacts } from '../services/whatsappService.js';
-import { t } from '../config/texts.js';
+import {
+  sendWhatsAppText,
+  sendWhatsAppButtons,
+  sendWhatsAppContacts
+} from '../services/whatsappService.js';
 
+import { t } from '../config/texts.js';
 import { VERIFY_TOKEN, ADMIN_PHONE_DIGITS } from '../config/app.js';
 import { extractIncomingMessages } from '../services/wabaParser.js';
 
@@ -22,6 +26,7 @@ import * as FlowSearch from '../flows/flow-search.js';
 import * as FlowEdit from '../flows/flow-edit.js';
 import * as FlowPromos from '../flows/flow-promos.js';
 import * as FlowFeedback from '../flows/flow-feedback.js';
+import * as FlowLogout from '../flows/flow-logout.js';
 import { showMainMenu } from '../services/wabaUiService.js';
 
 /* ========== VERIFY (hub.challenge) ========== */
@@ -46,11 +51,13 @@ export async function handleWhatsAppMessage(req, res) {
 
     for (const { from, text } of messages) {
       const normText = sanitizeText(text || '');
+      console.log(`[RX][text] from=${from} :: ${text || ''}`);
+
       let session = await getOrCreateSession(from);
       await ensureExpiry(session);
       await bumpLastInteraction(from);
 
-      // Feedback ping (solo una vez)
+      // 1️⃣ Feedback ping (solo una vez)
       if (shouldPromptFeedback(session)) {
         await sendWhatsAppButtons(from, t('fb_ping'), [
           { id: 'fb_ok',  title: '👍 Sí' },
@@ -60,13 +67,13 @@ export async function handleWhatsAppMessage(req, res) {
         await markFeedbackPrompted(from);
       }
 
-      // 1) Posible respuesta de desambiguación (“disambig:*”) → FlowSearch primero
+      // 2️⃣ Respuesta de desambiguación (“disambig:*”) → FlowSearch
       if (await FlowSearch.tryHandleDisambig(from, normText)) continue;
 
-      // 2) Gating CUIT / expiración → FlowAuth
+      // 3️⃣ Gating CUIT / expiración → FlowAuth
       if (await FlowAuth.handleAuthGate({ from, normText })) continue;
 
-      // 3) Inactividad → volvemos a menú
+      // 4️⃣ Inactividad → volver al menú
       session = await getOrCreateSession(from);
       if (shouldResetToMenu(session)) {
         await resetToMenu(from);
@@ -76,23 +83,34 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // 4) Ya logueado: renovar TTL
+      // 5️⃣ Sesión válida → renovar TTL
       await bumpExpiry(from);
       const vet = await getVetByCuit(session.cuit);
       const nombre = firstName(vet?.nombre) || '';
       const state = await getState(from);
       const intent = detectarIntent(normText);
 
-      // 5) Feedback flow (cubre fb_ok, fb_meh, fb_txt y el texto libre)
+      // 6️⃣ Feedback (👍 👎 💬)
       if (await FlowFeedback.handle({ from, intent, normText })) continue;
 
-      // 6) Promos (lista y abrir “promo:<id>”)
+      // 7️⃣ Promos (lista y detalle)
       if (await FlowPromos.handle({ from, intent, normText })) continue;
 
-      // 7) Edición de datos (entrada por “editar”, “editar_nombre”, “editar_email” o estados de captura)
+      // 8️⃣ Edición de datos
       if (await FlowEdit.handle({ from, intent, normText, vet, nombre })) continue;
 
-      // 8) Humano directo
+      // 9️⃣ Logout (cerrar sesión)
+      if (await FlowLogout.handle({ from, intent, normText, nombre })) {
+        if (intent === 'logout' || normText === 'confirm.si') {
+          await sendWhatsAppText(
+            from,
+            `👋 Gracias ${nombre}, cerré tu sesión. Cuando quieras volver, escribí tu CUIT para continuar.`
+          );
+        }
+        continue;
+      }
+
+      // 🔟 Hablar con humano / ejecutivo
       if (intent === 'humano') {
         if (vet?.EjecutivoCuenta) {
           const ej = vet.EjecutivoCuenta;
@@ -118,30 +136,28 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      // 9) Menú / saludos / ayuda → mostrar menú
-      if (['menu','saludo','ayuda','gracias'].includes(intent) || isLikelyGreeting(normText)) {
+      // 11️⃣ Menú / saludo / ayuda → flujo de menú
+      if (await FlowMenu.handle({ from, intent, nombre })) {
         await FlowSearch.resetRecoUI(from);
-        await showMainMenu(from, nombre);
         continue;
       }
 
-      // 10) Buscar (entra al estado “awaiting_consulta”)
+      // 12️⃣ Buscar productos
       if (intent === 'buscar') {
-        await setState(from, 'awaiting_consulta');
-        await sendWhatsAppText(from, t('pedir_consulta'));
+        await FlowMenu.goBuscar({ from });
         continue;
       }
 
-      // 11) Despedida
+      // 13️⃣ Despedida
       if (intent === 'despedida') {
         await sendWhatsAppText(from, t('despedida', { nombre }));
         continue;
       }
 
-      // 12) Default: flujo de búsqueda y desambiguación (incluye “prod:<id>”)
+      // 14️⃣ Búsqueda / desambiguación (por defecto)
       if (await FlowSearch.handle({ from, state, normText, vet, nombre })) continue;
 
-      // 13) Último fallback
+      // 15️⃣ Fallback genérico
       await sendWhatsAppText(from, t('error_generico'));
     }
   } catch (err) {

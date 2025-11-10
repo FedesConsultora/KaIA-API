@@ -82,14 +82,20 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
 
   /* ====== Edición de datos ====== */
   editar_intro: 'Podés actualizar tus datos. ¿Qué querés cambiar?',
+  // Menú “Mis datos”
+  editar_menu_title: 'KaIA – Mis datos',
+  editar_menu_body: 'Elegí qué querés actualizar:',
+  editar_menu_btn: 'Elegí',
+
+  // Nombre
   editar_pedir_nombre:
     'Decime tu nombre tal como querés que figure (por ejemplo: “Clínica San Martín”).',
-  // NUEVO: mostrar valor actual y confirmar “de → a”
   editar_status_nombre: 'Tu nombre actual es: “{actual}”.',
   editar_confirmar_nombre_full:
     'Vas a cambiar tu nombre de:\n“{actual}” → “{valor}”\n\n¿Confirmás el cambio?',
   editar_ok_nombre: '¡Hecho, {nombre}! Actualicé tu nombre. ✍️',
 
+  // Email
   editar_pedir_email: 'Decime tu email (ej: ejemplo@dominio.com).',
   editar_status_email: 'Tu email actual es: “{actual}”.',
   editar_confirmar_email_full:
@@ -97,7 +103,7 @@ Pero antes de seguir, necesito verificar que seas parte de nuestra comunidad pro
   editar_ok_email: 'Perfecto {nombre}, guardé tu email {email}. 📧',
   editar_email_invalido: 'Ese email no parece válido. Probá de nuevo (ej: ejemplo@dominio.com).',
 
-  // (legacy, por si algo más lo usa)
+  // (legacy)
   editar_confirmar_nombre: 'Vas a cambiar tu nombre a:\n“{valor}”\n\n¿Confirmás el cambio?',
   editar_confirmar_email: 'Vas a cambiar tu email a:\n“{valor}”\n\n¿Confirmás el cambio?',
 
