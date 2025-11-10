@@ -1,45 +1,28 @@
 // src/controllers/webhookController.js
 import 'dotenv/config';
-import {
-  sendWhatsAppText,
-  sendWhatsAppContacts,
-  sendWhatsAppList,
-  sendWhatsAppButtons
-} from '../services/whatsappService.js';
 
-import { recomendarDesdeBBDD } from '../services/recommendationService.js';
-import { responderConGPTStrict, extraerTerminosBusqueda } from '../services/gptService.js';
-import {
-  getOrCreateSession, isExpired, upsertVerified, setState, getState,
-  ensureExpiry, setPending, getPending, clearPending, logout, bumpExpiry,
-  shouldResetToMenu, resetToMenu,
-  getReco, setReco, incRecoFail, resetRecoFail,
-  shouldPromptFeedback, markFeedbackPrompted,
-  bumpLastInteraction,
-  resetRecoContext,         // ✅ ahora importamos el reset real
-  overwriteReco             // ✅ reemplazo duro del reco para búsquedas “nuevas”
-} from '../services/waSessionService.js';
-import { detectarIntent, isLikelyGreeting, sanitizeText } from '../services/intentService.js';
-import {
-  getVetByCuit, firstName, isValidEmail, updateVetEmail, updateVetName, isValidCuitNumber
-} from '../services/userService.js';
-import { WhatsAppSession, Promocion } from '../models/index.js';
+import { sendWhatsAppText, sendWhatsAppButtons, sendWhatsAppContacts } from '../services/whatsappService.js';
 import { t } from '../config/texts.js';
 
-// 🆕 Lista/Detalle de productos + desambiguación
+import { VERIFY_TOKEN, ADMIN_PHONE_DIGITS } from '../config/app.js';
+import { extractIncomingMessages } from '../services/wabaParser.js';
+
 import {
-  sendProductsList,
-  openProductDetail,
-  handleDisambigAnswer,
-  runDisambiguationOrRecommend
-} from '../services/disambiguationService.js';
+  getOrCreateSession, ensureExpiry, isExpired, bumpExpiry,
+  shouldPromptFeedback, markFeedbackPrompted,
+  shouldResetToMenu, resetToMenu, bumpLastInteraction, getState, setState
+} from '../services/waSessionService.js';
 
-const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || 'dev-token';
-const MAX_FAILS = Number(process.env.SEARCH_MAX_FAILS || 5);
-const DEBUG = process.env.DEBUG_RECO === '1';
+import { detectarIntent, isLikelyGreeting, sanitizeText } from '../services/intentService.js';
+import { getVetByCuit, firstName } from '../services/userService.js';
 
-// 🆕 Tel. Administrativo (wa.me requiere solo dígitos)
-const ADMIN_PHONE_DIGITS = '5492216374218';
+import * as FlowAuth from '../flows/flow-auth.js';
+import * as FlowMenu from '../flows/flow-menu.js';
+import * as FlowSearch from '../flows/flow-search.js';
+import * as FlowEdit from '../flows/flow-edit.js';
+import * as FlowPromos from '../flows/flow-promos.js';
+import * as FlowFeedback from '../flows/flow-feedback.js';
+import { showMainMenu } from '../services/wabaUiService.js';
 
 /* ========== VERIFY (hub.challenge) ========== */
 export function handleWhatsAppVerify(req, res) {
@@ -52,131 +35,22 @@ export function handleWhatsAppVerify(req, res) {
   return res.sendStatus(403);
 }
 
-/* ========== EXTRACTOR ========== */
-function extractIncomingMessages(body) {
-  const out = [];
-  try {
-    const entries = body?.entry || [];
-    for (const e of entries) {
-      const changes = e?.changes || [];
-      for (const ch of changes) {
-        const value = ch?.value || {};
-        const msgs = value?.messages || [];
-        for (const m of msgs) {
-          const from = m.from;
-          if (m.type === 'text') out.push({ from, text: (m.text?.body || '').trim() });
-          if (m.type === 'interactive') {
-            const it = m.interactive || {};
-            if (it.type === 'list_reply' && it.list_reply?.id) out.push({ from, text: String(it.list_reply.id).trim() });
-            if (it.type === 'button_reply' && it.button_reply?.id) out.push({ from, text: String(it.button_reply.id).trim() });
-          }
-        }
-      }
-    }
-  } catch {}
-  return out;
-}
-
-/* ========== LISTAS (sin botones) ========== */
-async function sendMainList(from, nombre = '') {
-  const body = t('menu_main_body');
-  const sections = [{
-    title: t('menu_main_title'),
-    rows: [
-      { id: 'main.buscar',  title: t('menu_item_buscar_title'), description: t('menu_item_buscar_desc') },
-      { id: 'main.promos',  title: t('menu_item_promos_title'), description: t('menu_item_promos_desc') },
-      { id: 'main.editar',  title: t('menu_item_editar_title'), description: t('menu_item_editar_desc') },
-      { id: 'main.logout',  title: t('menu_item_logout_title'), description: t('menu_item_logout_desc') }
-    ]
-  }];
-  const header = nombre ? t('saludo_header', { nombre }) : t('menu_main_title');
-  await sendWhatsAppList(from, body, sections, header, t('btn_elegi'));
-}
-
-async function sendConfirmList(from, body, yesId = 'confirm.si', noId = 'confirm.no', header = 'Confirmar') {
-  const sections = [{
-    title: 'Confirmación',
-    rows: [
-      { id: yesId, title: t('btn_confirmar') },
-      { id: noId , title: t('btn_cancelar') }
-    ]
-  }];
-  await sendWhatsAppList(from, body, sections, header, t('btn_elegi'));
-}
-
-/* ===== Heurística: ¿búsqueda nueva o refinamiento? ===== */
-function isFreshSearch(prevReco, consulta = '') {
-  const q = (consulta || '').toLowerCase();
-  const hasVerb = /(busco|estoy\s*buscando|quiero|necesito|catalogo|catálogo|otra cosa|nuevo|nueva busqueda|nueva búsqueda)/i.test(q);
-  const prevMust = (prevReco?.tokens?.must || []);
-  const killsMust = prevMust.length > 0 && !prevMust.some(m => q.includes(String(m).toLowerCase()));
-  const cameFromMenu = !prevReco?.lastQuery; // si venimos “en blanco”, tratamos como nueva
-  return hasVerb || killsMust || cameFromMenu;
-}
-
-/* ===== Recomendación con contexto (lista primero) ===== */
-async function handleConsulta(from, nombre, consultaRaw) {
-  const consulta = sanitizeText(consultaRaw || '');
-
-  if (!consulta || isLikelyGreeting(consulta) || /^main\./i.test(consulta) || /^buscar$/i.test(consulta) || /^menu$/i.test(consulta)) {
-    console.log(`[RECO][SKIP] query="${consulta}"`);
-    await sendWhatsAppText(from, t('pedir_consulta'));
-    return;
-  }
-
-  const prev = await getReco(from);
-  const gptNew = await extraerTerminosBusqueda(consulta);
-
-  // ¿Es búsqueda nueva o refinamiento?
-  if (isFreshSearch(prev, consulta)) {
-    await overwriteReco(from, {
-      // arranco limpio: sin MUST/SHOULD previos
-      failCount: 0,
-      tokens: {
-        must:   Array.isArray(gptNew?.must)   ? gptNew.must   : [],
-        should: Array.isArray(gptNew?.should) ? gptNew.should : [],
-        negate: Array.isArray(gptNew?.negate) ? gptNew.negate : []
-      },
-      lastQuery: consulta,
-      lastSimilares: [],
-      lastShownIds: [],
-      // señales en blanco
-      signals: {
-        species: null, form: null, brands: [], actives: [],
-        indications: [], weight_hint: null, packs: [], negatives: []
-      },
-      asked: [],
-      hops: 0,
-      lastInteractionAt: null
-    });
-    console.log(`[RECO] FRESH query="${consulta}" tokens=${JSON.stringify(gptNew)}`);
-  } else {
-    const mergedTokens = {
-      must:   Array.from(new Set([...(prev?.tokens?.must || []), ...(gptNew?.must || [])])),
-      should: Array.from(new Set([...(prev?.tokens?.should || []), ...(gptNew?.should || [])])),
-      negate: Array.from(new Set([...(prev?.tokens?.negate || []), ...(gptNew?.negate || [])]))
-    };
-    await setReco(from, { tokens: mergedTokens, lastQuery: consulta });
-    console.log(`[RECO] REFINE query="${consulta}" tokens=${JSON.stringify(mergedTokens)}`);
-  }
-
-  await setState(from, 'awaiting_consulta');
-  await runDisambiguationOrRecommend({ from, nombre, consulta });
-}
-
-/* ========== CONTROLLER PRINCIPAL ========== */
+/* ========== MAIN WEBHOOK ========== */
 export async function handleWhatsAppMessage(req, res) {
   try {
+    // WhatsApp exige 200 rápido
     res.sendStatus(200);
 
     const messages = extractIncomingMessages(req.body);
     if (!messages.length) return;
 
     for (const { from, text } of messages) {
-      const session = await getOrCreateSession(from);
+      const normText = sanitizeText(text || '');
+      let session = await getOrCreateSession(from);
       await ensureExpiry(session);
       await bumpLastInteraction(from);
 
+      // Feedback ping (solo una vez)
       if (shouldPromptFeedback(session)) {
         await sendWhatsAppButtons(from, t('fb_ping'), [
           { id: 'fb_ok',  title: '👍 Sí' },
@@ -186,385 +60,42 @@ export async function handleWhatsAppMessage(req, res) {
         await markFeedbackPrompted(from);
       }
 
-      const normText = sanitizeText(text || '');
-      console.log(`[RX] from=${from} state=${session.state} cuit=${session.cuit || '-'} text="${normText.slice(0, 160)}"`);
+      // 1) Posible respuesta de desambiguación (“disambig:*”) → FlowSearch primero
+      if (await FlowSearch.tryHandleDisambig(from, normText)) continue;
 
-      // Captura respuestas de desambiguación (ids "disambig:*")
-      if ((normText || '').startsWith('disambig:')) {
-        const ok = await handleDisambigAnswer(from, normText);
-        if (ok) continue;
-      }
+      // 2) Gating CUIT / expiración → FlowAuth
+      if (await FlowAuth.handleAuthGate({ from, normText })) continue;
 
-      // ===== Gating por CUIT + expiración
-      const loggedIn = !!(session.cuit && !isExpired(session));
-      if (!loggedIn) {
-        const digits = (normText || '').replace(/\D/g, '');
-        if (/^\d{11}$/.test(digits)) {
-          if (!isValidCuitNumber(digits)) {
-            console.log(`[AUTH] gating=cuenta invalida (checksum) cuit=${digits}`);
-            await sendWhatsAppText(from, t('bad_cuit'));
-            continue;
-          }
-          const vet = await getVetByCuit(digits);
-          if (!vet) {
-            console.log(`[AUTH] gating=cuenta inexistente cuit=${digits}`);
-            await sendWhatsAppText(from, t('bad_cuit'));
-            continue;
-          }
-          await upsertVerified(from, digits);
-          const nombre = firstName(vet?.nombre) || '';
-          const ttl = Number(process.env.CUIT_VERIFY_TTL_DAYS || process.env.WHATSAPP_SESSION_TTL_DAYS || 60);
-          console.log(`[AUTH] login ok cuit=${digits} nombre=${nombre}`);
-          await sendWhatsAppText(from, t('ok_cuit', { nombre, ttl }));
-          await setState(from, 'awaiting_consulta');
-          await sendWhatsAppText(from, t('pedir_consulta'));
-          continue;
-        }
-        console.log(`[AUTH] gating=pedir_cuit reason=${!session.cuit ? 'no_cuit' : 'expired'}`);
-        await sendWhatsAppText(from, t('ask_cuit'));
-        continue;
-      }
-
-      // 🕒 Inactividad: volver a menú
+      // 3) Inactividad → volvemos a menú
+      session = await getOrCreateSession(from);
       if (shouldResetToMenu(session)) {
         await resetToMenu(from);
         const vet = await getVetByCuit(session.cuit);
-        if (DEBUG) console.log('[MENU] reset due to idle');
         await sendWhatsAppText(from, t('menu_back_idle'));
-        await sendMainList(from, firstName(vet?.nombre) || '');
+        await showMainMenu(from, firstName(vet?.nombre) || '');
         continue;
       }
 
+      // 4) Ya logueado: renovar TTL
       await bumpExpiry(from);
-
       const vet = await getVetByCuit(session.cuit);
       const nombre = firstName(vet?.nombre) || '';
-
-      // Apertura de ficha por selección "prod:<id>"
-      if ((normText || '').startsWith('prod:')) {
-        const pid = Number(String(normText).split(':')[1]);
-        const ok = await openProductDetail(from, pid);
-        if (ok) {
-          const ej = vet?.EjecutivoCuenta;
-          if (ej && (ej.phone || ej.email)) {
-            await sendWhatsAppContacts(from, [{
-              formatted_name: ej.nombre,
-              first_name: ej.nombre?.split(' ')[0],
-              last_name: ej.nombre?.split(' ').slice(1).join(' ') || undefined,
-              org: 'KrönenVet',
-              phones: ej.phone ? [{ phone: ej.phone, type: 'WORK' }] : [],
-              emails: ej.email ? [{ email: ej.email, type: 'WORK' }] : []
-            }]);
-            await sendWhatsAppText(from, t('handoff_ejecutivo', { ejecutivo: ej.nombre, telefono: ej.phone || '' }));
-          } else {
-            await sendWhatsAppContacts(from, [{
-              formatted_name: 'Administración KronenVet',
-              first_name: 'Administración',
-              last_name: 'KronenVet',
-              org: 'KrönenVet',
-              phones: [{ phone: ADMIN_PHONE_DIGITS, type: 'WORK' }]
-            }]);
-            await sendWhatsAppText(from, t('handoff_admin', { telefono: ADMIN_PHONE_DIGITS }));
-          }
-
-          await sendWhatsAppButtons(from, t('cta_como_seguimos'), [
-            { id: 'humano',  title: t('btn_humano') },
-            { id: 'menu',    title: t('btn_menu') }
-          ]);
-
-          // (Opcional) limpiar contexto tras ver ficha
-          try { await resetRecoContext(from); } catch {}
-        } else {
-          await sendWhatsAppText(from, t('producto_open_error'));
-        }
-        continue;
-      }
-
       const state = await getState(from);
-      const pending = await getPending(from);
+      const intent = detectarIntent(normText);
 
-      // --- Captura NUEVO NOMBRE
-      if (state === 'awaiting_nombre_value') {
-        const nuevo = String(normText || '').slice(0, 120);
-        if (!nuevo) { await sendWhatsAppText(from, t('editar_pedir_nombre')); continue; }
-        await setPending(from, { action: 'edit_nombre', value: nuevo, prev: { state } });
-        await setState(from, 'confirm');
-        console.log(`[FLOW] edit_nombre -> confirm "${nuevo}"`);
-        await sendConfirmList(from, t('editar_confirmar_nombre', { valor: nuevo }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
-        continue;
-      }
+      // 5) Feedback flow (cubre fb_ok, fb_meh, fb_txt y el texto libre)
+      if (await FlowFeedback.handle({ from, intent, normText })) continue;
 
-      // --- Captura NUEVO EMAIL
-      if (state === 'awaiting_email_value') {
-        const email = String(normText || '');
-        if (!isValidEmail(email)) { await sendWhatsAppText(from, t('editar_email_invalido')); continue; }
-        await setPending(from, { action: 'edit_email', value: email, prev: { state } });
-        await setState(from, 'confirm');
-        console.log(`[FLOW] edit_email -> confirm "${email}"`);
-        await sendConfirmList(from, t('editar_confirmar_email', { valor: email }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
-        continue;
-      }
+      // 6) Promos (lista y abrir “promo:<id>”)
+      if (await FlowPromos.handle({ from, intent, normText })) continue;
 
-      // --- Modo búsqueda
-      if (state === 'awaiting_consulta') {
-        const intent = detectarIntent(normText) || '';
-        if (DEBUG) console.log(`[FLOW] awaiting_consulta intent=${intent}`);
+      // 7) Edición de datos (entrada por “editar”, “editar_nombre”, “editar_email” o estados de captura)
+      if (await FlowEdit.handle({ from, intent, normText, vet, nombre })) continue;
 
-        if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent) || isLikelyGreeting(normText)) {
-          console.log('[GUARD] greeting/menu/ayuda → mostrar menú');
-          await resetRecoContext(from);
-          await sendMainList(from, nombre);
-          continue;
-        }
-        if (intent === 'buscar') {
-          console.log('[GUARD] main.buscar/buscar → pedir consulta');
-          await sendWhatsAppText(from, t('pedir_consulta'));
-          continue;
-        }
-        if (intent === 'promos') {
-          const promos = await Promocion.findAll({
-            where: { vigente: true },
-            order: [['vigencia_hasta','ASC'], ['nombre','ASC']],
-            limit: 10
-          });
-          if (!promos.length) {
-            await sendWhatsAppText(from, t('promos_empty'));
-          } else {
-            await sendWhatsAppList(from, t('promos_list_body'), [{
-              title: t('promos_list_title'),
-              rows: promos.map(p => ({
-                id: `promo:${p.id}`,
-                title: (p.nombre || '').slice(0,24),
-                description: [p.tipo, p.presentacion].filter(Boolean).join(' • ').slice(0,60)
-              }))
-            }], t('promos_list_header'), t('btn_elegi'));
-          }
-          continue;
-        }
-        if (intent === 'humano') {
-          const ej = vet?.EjecutivoCuenta;
-          if (ej) {
-            await sendWhatsAppContacts(from, [{
-              formatted_name: ej.nombre,
-              first_name: ej.nombre?.split(' ')[0],
-              last_name: ej.nombre?.split(' ').slice(1).join(' ') || undefined,
-              org: 'KrönenVet',
-              phones: ej.phone ? [{ phone: ej.phone, type: 'WORK' }] : [],
-              emails: ej.email ? [{ email: ej.email, type: 'WORK' }] : []
-            }]);
-            await sendWhatsAppText(from, t('ejecutivo_contacto_enviado', { ejecutivo: ej.nombre, telefono: ej.phone || '' }));
-          } else {
-            await sendWhatsAppContacts(from, [{
-              formatted_name: 'Administración KronenVet',
-              first_name: 'Administración',
-              last_name: 'KronenVet',
-              org: 'KrönenVet',
-              phones: [{ phone: ADMIN_PHONE_DIGITS, type: 'WORK' }]
-            }]);
-            await sendWhatsAppText(from, t('handoff_admin', { telefono: ADMIN_PHONE_DIGITS }));
-          }
-          continue;
-        }
-        if (intent === 'logout') {
-          await setPending(from, { action: 'logout', prev: { state } });
-          await setState(from, 'confirm');
-          await sendConfirmList(from, t('logout_confirm'), 'confirm.si', 'confirm.no', 'Salir');
-          continue;
-        }
-
-        if (intent === 'species_perro' || intent === 'species_gato') {
-          const especie = intent === 'species_perro' ? 'perro' : 'gato';
-          await setReco(from, { tokens: { should: [especie] } });
-          const r = await getReco(from);
-          if (r?.lastQuery) {
-            await handleConsulta(from, nombre, r.lastQuery);
-          } else {
-            await sendWhatsAppText(from, t('pedir_consulta'));
-          }
-          continue;
-        }
-
-        if (intent === 'volver') {
-          await resetRecoContext(from);
-          await sendMainList(from, nombre);
-          continue;
-        }
-
-        console.log(`[FLOW] consulta="${(normText||'').slice(0,80)}"`);
-        await handleConsulta(from, nombre, normText);
-        continue;
-      }
-
-      // --- Confirmaciones
-      if (state === 'confirm') {
-        const raw = (normText || '').toLowerCase();
-        const intentC = detectarIntent(normText);
-        const isNo   = intentC === 'confirm_no' || raw === 'confirm.no';
-        const isYes  = intentC === 'confirm_si' || raw === 'confirm.si';
-        const isBack = intentC === 'volver' || intentC === 'menu';
-
-        const goBack = async () => {
-          if (!pending?.prev?.state) {
-            await clearPending(from);
-            await setState(from, 'awaiting_consulta');
-            await resetRecoContext(from);
-            await sendMainList(from, nombre);
-            return;
-          }
-          const prevState = pending.prev.state;
-          await setState(from, prevState);
-          if (prevState === 'awaiting_nombre_value') {
-            await sendWhatsAppText(from, t('editar_pedir_nombre'));
-          } else if (prevState === 'awaiting_email_value') {
-            await sendWhatsAppText(from, t('editar_pedir_email'));
-          } else {
-            await resetRecoContext(from);
-            await sendMainList(from, nombre);
-          }
-        };
-
-        if (isBack || isNo) {
-          console.log('[CONFIRM] volver/cancelar → back');
-          await goBack();
-          continue;
-        }
-
-        if (isYes) {
-          if (!pending) {
-            await setState(from, 'awaiting_consulta');
-            await sendWhatsAppText(from, t('refinar_follow'));
-            continue;
-          }
-          const { action, value } = pending;
-
-          if (action === 'edit_nombre') {
-            await updateVetName(vet.id, value);
-            await clearPending(from);
-            await setState(from, 'awaiting_consulta');
-            const nombreNuevo = firstName(value) || nombre;
-            console.log('[CONFIRM] edit_nombre OK');
-            await sendWhatsAppText(from, t('editar_ok_nombre', { nombre: nombreNuevo }));
-            await sendWhatsAppText(from, t('refinar_follow'));
-            continue;
-          }
-          if (action === 'edit_email') {
-            await updateVetEmail(vet.id, value);
-            await clearPending(from);
-            await setState(from, 'awaiting_consulta');
-            console.log('[CONFIRM] edit_email OK');
-            await sendWhatsAppText(from, t('editar_ok_email', { nombre, email: value }));
-            await sendWhatsAppText(from, t('refinar_follow'));
-            continue;
-          }
-          if (action === 'logout') {
-            await clearPending(from);
-            await logout(from);
-            console.log('[AUTH] logout OK');
-            await sendWhatsAppText(from, t('logout_ok', { nombre }));
-            continue;
-          }
-
-          await clearPending(from);
-          await setState(from, 'awaiting_consulta');
-          console.log('[CONFIRM] acción desconocida → cancelado');
-          await sendWhatsAppText(from, t('cancelado'));
-          await sendWhatsAppText(from, t('refinar_follow'));
-          continue;
-        }
-
-        // Re-mostrar confirmación si escribe otra cosa
-        if (pending?.action === 'edit_nombre') {
-          await sendConfirmList(from, t('editar_confirmar_nombre', { valor: pending.value }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
-        } else if (pending?.action === 'edit_email') {
-          await sendConfirmList(from, t('editar_confirmar_email', { valor: pending.value }), 'confirm.si', 'confirm.no', 'Confirmar cambio');
-        } else if (pending?.action === 'logout') {
-          await sendConfirmList(from, t('logout_confirm'), 'confirm.si', 'confirm.no', 'Salir');
-        } else {
-          await clearPending(from);
-          await setState(from, 'awaiting_consulta');
-          await sendWhatsAppText(from, t('refinar_follow'));
-        }
-        continue;
-      }
-
-      /* ====== Intents fuera de awaiting_consulta ====== */
-      const intent = detectarIntent(normText) || '';
-
-      if (intent === 'buscar') {
-        await setState(from, 'awaiting_consulta');
-        await sendWhatsAppText(from, t('pedir_consulta'));
-        continue;
-      }
-
-      if (intent === 'promos' || /promo/i.test(normText || '')) {
-        const promos = await Promocion.findAll({
-          where: { vigente: true },
-          order: [['vigencia_hasta','ASC'], ['nombre','ASC']],
-          limit: 10
-        });
-        if (!promos.length) {
-          await sendWhatsAppText(from, t('promos_empty'));
-          continue;
-        }
-        await sendWhatsAppList(from, t('promos_list_body'), [{
-          title: t('promos_list_title'),
-          rows: promos.map(p => ({
-            id: `promo:${p.id}`,
-            title: (p.nombre || '').slice(0,24),
-            description: [p.tipo, p.presentacion].filter(Boolean).join(' • ').slice(0,60)
-          }))
-        }], t('promos_list_header'), t('btn_elegi'));
-        continue;
-      }
-
-      if ((normText || '').startsWith('promo:')) {
-        const pid = Number(String(normText).split(':')[1]);
-        const p = await Promocion.findByPk(pid);
-        if (!p) { await sendWhatsAppText(from, t('promo_open_error')); continue; }
-        const body = [
-          `🎁 ${p.nombre}`,
-          p.tipo ? `Tipo: ${p.tipo}` : null,
-          p.detalle ? p.detalle : null,
-          p.regalo ? `Regalo: ${p.regalo}` : null,
-          `Vigencia: ${p.vigencia_desde ? new Date(p.vigencia_desde).toLocaleDateString() : '—'} a ${p.vigencia_hasta ? new Date(p.vigencia_hasta).toLocaleDateString() : '—'}`
-        ].filter(Boolean).join('\n');
-        await sendWhatsAppText(from, body);
-        continue;
-      }
-
-      if (intent === 'editar') {
-        await sendWhatsAppList(from, t('editar_intro'), [{
-          title: 'Mis datos',
-          rows: [
-            { id: 'edit.nombre', title: '🏷 Nombre', description: 'Razón social / Fantasía' },
-            { id: 'edit.email' , title: '📧 Email' , description: 'Correo de contacto' }
-          ]
-        }], 'Editar datos', t('btn_elegi'));
-        continue;
-      }
-
-      if (intent === 'editar_nombre') {
-        await setState(from, 'awaiting_nombre_value');
-        await sendWhatsAppText(from, t('editar_pedir_nombre'));
-        continue;
-      }
-
-      if (intent === 'editar_email') {
-        await setState(from, 'awaiting_email_value');
-        await sendWhatsAppText(from, t('editar_pedir_email'));
-        continue;
-      }
-
-      if (intent === 'logout') {
-        await setPending(from, { action: 'logout', prev: { state } });
-        await setState(from, 'confirm');
-        await sendConfirmList(from, t('logout_confirm'), 'confirm.si', 'confirm.no', 'Salir');
-        continue;
-      }
-
+      // 8) Humano directo
       if (intent === 'humano') {
-        const ej = vet?.EjecutivoCuenta;
-        if (ej) {
+        if (vet?.EjecutivoCuenta) {
+          const ej = vet.EjecutivoCuenta;
           await sendWhatsAppContacts(from, [{
             formatted_name: ej.nombre,
             first_name: ej.nombre?.split(' ')[0],
@@ -587,42 +118,31 @@ export async function handleWhatsAppMessage(req, res) {
         continue;
       }
 
-      if (intent === 'feedback_ok') {
-        await WhatsAppSession.update({ feedbackLastResponseAt: new Date() }, { where: { phone: from } });
-        await sendWhatsAppText(from, t('fb_ok_resp'));
+      // 9) Menú / saludos / ayuda → mostrar menú
+      if (['menu','saludo','ayuda','gracias'].includes(intent) || isLikelyGreeting(normText)) {
+        await FlowSearch.resetRecoUI(from);
+        await showMainMenu(from, nombre);
         continue;
       }
-      if (intent === 'feedback_meh' || intent === 'feedback_txt') {
-        await WhatsAppSession.update({ feedbackLastResponseAt: new Date() }, { where: { phone: from } });
-        await sendWhatsAppText(from, t('fb_meh_ask'));
-        await setState(from, 'awaiting_feedback_text');
-        continue;
-      }
-      const stateNow = await getState(from);
-      if (stateNow === 'awaiting_feedback_text') {
-        const comentario = (normText || '').slice(0, 3000);
-        if (!comentario) { await sendWhatsAppText(from, t('fb_txt_empty')); continue; }
+
+      // 10) Buscar (entra al estado “awaiting_consulta”)
+      if (intent === 'buscar') {
         await setState(from, 'awaiting_consulta');
-        await WhatsAppSession.update({ feedbackLastResponseAt: new Date() }, { where: { phone: from } });
-        await sendWhatsAppText(from, t('fb_txt_ok'));
-        await sendWhatsAppText(from, t('refinar_follow'));
+        await sendWhatsAppText(from, t('pedir_consulta'));
         continue;
       }
 
-      if (['saludo', 'menu', 'ayuda', 'gracias'].includes(intent)) {
-        await resetRecoContext(from);
-        await sendMainList(from, nombre);
-        continue;
-      }
-
+      // 11) Despedida
       if (intent === 'despedida') {
         await sendWhatsAppText(from, t('despedida', { nombre }));
         continue;
       }
 
-      // Fallback: seguimos en búsqueda
-      await setState(from, 'awaiting_consulta');
-      await handleConsulta(from, nombre, normText);
+      // 12) Default: flujo de búsqueda y desambiguación (incluye “prod:<id>”)
+      if (await FlowSearch.handle({ from, state, normText, vet, nombre })) continue;
+
+      // 13) Último fallback
+      await sendWhatsAppText(from, t('error_generico'));
     }
   } catch (err) {
     console.error('❌ Error en webhook WhatsApp:', err);
