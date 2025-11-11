@@ -71,6 +71,51 @@ function logDiversity(tag, arr = []) {
   console.log(`[RECO][STATS] ${tag} :: candidatos=${arr.length} | marcas=${brands.size} | formas=${forms.size} | packs=${packs.size} | pesos=${weights.size}`);
 }
 
+/* ========= Matching robusto para peso/pack ========= */
+function isWeightToken(t='') { return /\d/.test(t) && /(kg)/i.test(t); }
+function weightTokenRegex(t='') {
+  const s = String(t).toLowerCase().replace(/\s+/g,' ').trim();
+  // rangos tipo "2–4 kg" / "2 - 4 kg" / "2 a 4 kg"
+  const mR = s.match(/(\d+(?:[.,]\d+)?)\s*(?:–|-|a)\s*(\d+(?:[.,]\d+)?)\s*kg/);
+  if (mR) {
+    const a = mR[1].replace(',','[.,]?');
+    const b = mR[2].replace(',','[.,]?');
+    return new RegExp(`\\b(?:${a}\\s*(?:kg)?\\s*(?:a|–|-)\\s*${b}\\s*kg|${a}\\s*(?:a|–|-)\\s*${b}\\s*kg)\\b`);
+  }
+  // hasta / ≤
+  const mLe = s.match(/(?:≤|hasta)\s*(\d+(?:[.,]\d+)?)\s*kg/);
+  if (mLe) return new RegExp(`\\b(?:≤\\s*)?hasta\\s*${mLe[1]}\\s*kg\\b|\\b≤\\s*${mLe[1]}\\s*kg\\b`);
+  // desde / ≥
+  const mGe = s.match(/(?:≥|desde)\s*(\d+(?:[.,]\d+)?)\s*kg/);
+  if (mGe) return new RegExp(`\\b(?:≥\\s*)?${mGe[1]}\\s*kg\\b|\\bdesde\\s*${mGe[1]}\\s*kg\\b`);
+  // número simple "5 kg"
+  const mN = s.match(/(\d+(?:[.,]\d+)?)\s*kg/);
+  if (mN)  return new RegExp(`\\b${mN[1]}\\s*kg\\b`);
+  return null;
+}
+function isPackToken(t='') {
+  const s = String(t).toLowerCase().trim();
+  return /^x?\d{1,2}$/.test(s.replace(/\s+/g,'')) || /pack/.test(s);
+}
+function packTokenRegex(t='') {
+  const n = String(t).toLowerCase().replace(/[^0-9]/g,'');
+  if (!n) return null;
+  return new RegExp(`\\b(?:x\\s*${n}|pack\\s*(?:de\\s*)?${n})\\b`);
+}
+function tokenHit(H, t) {
+  const tt = norm(t);
+  if (!tt) return false;
+  if (isWeightToken(tt)) {
+    const rx = weightTokenRegex(tt);
+    return rx ? rx.test(H) : H.includes(tt);
+  }
+  if (isPackToken(tt)) {
+    const rx = packTokenRegex(tt);
+    return rx ? rx.test(H) : H.includes(tt.replace(/^x/, 'x '));
+  }
+  return H.includes(tt);
+}
+
 /**
  * Recomienda desde BBDD con apoyo opcional de tokens GPT y señales ricas.
  * @param {string} termRaw
@@ -169,18 +214,18 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
       let s = 0;
       let hits = 0;
 
-      // MUST fuerte (activos, etc.)
+      // MUST fuerte (activos, elecciones del usuario)
       for (const t of must) {
-        if (t && H.includes(t)) { s += 6; hits++; }
+        if (t && tokenHit(H, t)) { s += 6; hits++; }
       }
       // SHOULD (consulta + signals generales)
       for (const t of tokensForHit) {
-        if (t && H.includes(t)) { s += 2; hits++; }
-        if (t && norm(p.nombre).startsWith(t)) s += 1;
+        if (t && tokenHit(H, t)) { s += 2; hits++; }
+        if (t && norm(p.nombre).startsWith(norm(t))) s += 1;
       }
       // Negativos
       for (const n of negate) {
-        if (n && H.includes(n)) s -= 5;
+        if (n && tokenHit(H, n)) s -= 5;
       }
 
       // Bonos por señales ricas bien mapeadas
@@ -188,8 +233,8 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
       if (sig.form && H.includes(norm(sig.form))) s += 3;
       (sig.brands || []).forEach(b => { if (b && H.includes(norm(b))) s += 2; });
       (sig.indications || []).forEach(i => { if (i && H.includes(norm(i))) s += 1; });
-      (sig.packs || []).forEach(px => { if (px && H.includes(norm(px))) s += 2; });
-      if (sig.weight_hint && H.includes(norm(sig.weight_hint))) s += 3;
+      (sig.packs || []).forEach(px => { if (px && tokenHit(H, px)) s += 2; });
+      if (sig.weight_hint && tokenHit(H, sig.weight_hint)) s += 3;
 
       // 💥 Penalización especie contrapuesta (evita “GATOS” cuando piden “PERROS”, y viceversa)
       const hasPerro = /\bperr[oa]s?\b/.test(H);
@@ -202,7 +247,8 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
       return { p, s, hits, H };
     })
-    .filter(x => must.length ? must.some(t => t && x.H.includes(t)) : x.hits > 0)
+    // Si hay MUST, al menos uno debe matchear (con regex de peso/pack)
+    .filter(x => must.length ? must.some(t => t && tokenHit(x.H, t)) : x.hits > 0)
     .sort((a, b) => b.s - a.s);
 
   if (!scored.length) {

@@ -573,11 +573,22 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   }
 
   const newSignals = { ...(d.signals || {}) };
-  if (type === 'species') newSignals.species = NORM(value);
-  if (type === 'form')    newSignals.form    = NORM(value);
-  if (type === 'weight')  newSignals.weight_hint = normalizeWeightLabel(value);
-  if (type === 'brand')   newSignals.brands  = Array.from(new Set([...(newSignals.brands||[]), value]));
-  if (type === 'pack')    newSignals.packs   = Array.from(new Set([...(newSignals.packs||[]), value]));
+  const mustByAnswer = []; // <— elecciones explícitas pasan a MUST
+
+  if (type === 'species') { newSignals.species = NORM(value); if (newSignals.species) mustByAnswer.push(newSignals.species); }
+  if (type === 'form')    { newSignals.form    = NORM(value); if (newSignals.form)    mustByAnswer.push(newSignals.form); }
+  if (type === 'weight')  {
+    newSignals.weight_hint = normalizeWeightLabel(value);
+    if (newSignals.weight_hint) mustByAnswer.push(newSignals.weight_hint);
+  }
+  if (type === 'brand')   {
+    newSignals.brands  = Array.from(new Set([...(newSignals.brands||[]), value]));
+    mustByAnswer.push(value);
+  }
+  if (type === 'pack')    {
+    newSignals.packs   = Array.from(new Set([...(newSignals.packs||[]), value]));
+    mustByAnswer.push(value);
+  }
   if (type === 'active')  newSignals.actives = Array.from(new Set([...(newSignals.actives||[]), value]));
 
   // limpiar SOLO 'disambig'
@@ -592,7 +603,12 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   (newSignals.brands || []).forEach(b => extraShould.push(b));
   (newSignals.packs  || []).forEach(px => extraShould.push(px));
   if (newSignals.weight_hint) extraShould.push(newSignals.weight_hint);
-  const extraMust = (newSignals.actives || []).map(NORM);
+
+  // MUST ahora incluye principios activos + la elección explícita
+  const extraMust = [
+    ...(newSignals.actives || []),
+    ...mustByAnswer
+  ].map(NORM);
 
   const mergedTokens = {
     must:   Array.from(new Set([...(prev?.tokens?.must || []), ...extraMust])),
