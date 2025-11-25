@@ -21,7 +21,7 @@ import { getVetByCuit } from '../services/userService.js';
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 export async function resetRecoUI(from) {
-  try { await resetRecoContext(from); } catch {}
+  try { await resetRecoContext(from); } catch { }
 }
 
 function isFreshSearch(prevReco, consulta = '') {
@@ -52,7 +52,7 @@ async function handleConsulta(from, nombre, consulta) {
     await overwriteReco(from, {
       failCount: 0,
       tokens: {
-        must:   Array.isArray(gptNew?.must)   ? gptNew.must   : [],
+        must: Array.isArray(gptNew?.must) ? gptNew.must : [],
         should: Array.isArray(gptNew?.should) ? gptNew.should : [],
         negate: Array.isArray(gptNew?.negate) ? gptNew.negate : []
       },
@@ -66,9 +66,9 @@ async function handleConsulta(from, nombre, consulta) {
     });
   } else {
     const mergedTokens = {
-      must:   Array.from(new Set([...(prev?.tokens?.must || []), ...(gptNew?.must || [])])),
+      must: Array.from(new Set([...(prev?.tokens?.must || []), ...(gptNew?.must || [])])),
       should: Array.from(new Set([...(prev?.tokens?.should || []), ...(gptNew?.should || [])])),
-      negate: Array.from(new Set([...(prev?.tokens?.negate || []) , ...(gptNew?.negate || [])]))
+      negate: Array.from(new Set([...(prev?.tokens?.negate || []), ...(gptNew?.negate || [])]))
     };
     await setReco(from, { tokens: mergedTokens, lastQuery: consulta });
   }
@@ -121,7 +121,7 @@ export async function handle({ from, state, normText, vet, nombre }) {
   // Estado de búsqueda
   if (state === 'awaiting_consulta') {
     const intent = detectarIntent(normText);
-    if (['menu','saludo','ayuda','gracias'].includes(intent)) {
+    if (['menu', 'saludo', 'ayuda', 'gracias'].includes(intent)) {
       await resetRecoContext(from);
       return false; // que lo agarre el flow-menu en el controller
     }
