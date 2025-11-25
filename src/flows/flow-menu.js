@@ -15,6 +15,12 @@ function delay(ms) {
 export async function handle({ from, intent, nombre }) {
   if (!['menu', 'saludo', 'ayuda', 'gracias'].includes(intent)) return false;
 
+  // Saludo personalizado si es un saludo inicial
+  if (intent === 'saludo' && nombre) {
+    await sendWhatsAppText(from, t('saludo_header', { nombre }));
+    await delay(600);
+  }
+
   // Transición suave
   await sendWhatsAppText(from, '✨ Mostrando opciones del menú principal…');
   await delay(500);

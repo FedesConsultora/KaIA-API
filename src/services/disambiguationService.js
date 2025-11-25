@@ -451,8 +451,9 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     return true;
   }
 
-  // REGLA 1: pocos candidatos → listar TODO (cap a 10) + mini-resumen GPT
+  // REGLA 1: ≤10 candidatos → listar TODO directamente (NO preguntar más)
   if (candidatos.length <= FIRST_LIST_THRESHOLD) {
+    console.log(`[RECO][LIST-DIRECT] Showing ${candidatos.length} products directly (threshold: ${FIRST_LIST_THRESHOLD})`);
     await sendWhatsAppText(from, t('mostrando_todos', { total: Math.min(candidatos.length, SAFE_LIST_MAX) }));
     await sendProductsList(from, candidatos, t('productos_select_header'));
     await setState(from, 'awaiting_consulta');
@@ -460,7 +461,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     return true;
   }
 
-  // Muchos: ¿conviene desambiguar?
+  // Solo si hay > 10 candidatos, intentar desambiguar
   let question = pickFirstQuestion({
     signals,
     tokens: mergedTokens,
@@ -469,7 +470,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     asked
   });
 
-  // REGLA 2: máximo de hops “normales”
+  // REGLA 2: máximo de hops "normales"
   if (hops >= MAX_HOPS) {
     if (candidatos.length <= SAFE_LIST_MAX) {
       await sendWhatsAppText(from, t('mostrando_todos', { total: candidatos.length }));
@@ -479,7 +480,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
       return true;
     }
 
-    // Una pregunta extra “inteligente”
+    // Una pregunta extra "inteligente"
     if (question) {
       const { groups } = analyzeVariantDimensions(candidatos);
       const opts = new Set();
@@ -530,7 +531,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     return true;
   }
 
-  // Aún podemos desambiguar normalmente
+  // Aún podemos desambiguar normalmente  
   if (question) {
     const { groups } = analyzeVariantDimensions(candidatos);
     const opts = new Set();
@@ -605,21 +606,29 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   }
 
   const newSignals = { ...(d.signals || {}) };
-  const mustByAnswer = []; // <— elecciones explícitas pasan a MUST
 
-  if (type === 'species') { newSignals.species = NORM(value); if (newSignals.species) mustByAnswer.push(newSignals.species); }
-  if (type === 'form') { newSignals.form = NORM(value); if (newSignals.form) mustByAnswer.push(newSignals.form); }
+  // Las elecciones del usuario van a SHOULD para scoring, NO a MUST (que es demasiado restrictivo)
+  const extraShould = [];
+
+  if (type === 'species') {
+    newSignals.species = NORM(value);
+    if (newSignals.species) extraShould.push(newSignals.species);
+  }
+  if (type === 'form') {
+    newSignals.form = NORM(value);
+    if (newSignals.form) extraShould.push(newSignals.form);
+  }
   if (type === 'weight') {
     newSignals.weight_hint = normalizeWeightLabel(value);
-    if (newSignals.weight_hint) mustByAnswer.push(newSignals.weight_hint);
+    if (newSignals.weight_hint) extraShould.push(newSignals.weight_hint);
   }
   if (type === 'brand') {
     newSignals.brands = Array.from(new Set([...(newSignals.brands || []), value]));
-    mustByAnswer.push(value);
+    extraShould.push(value);
   }
   if (type === 'pack') {
     newSignals.packs = Array.from(new Set([...(newSignals.packs || []), value]));
-    mustByAnswer.push(value);
+    extraShould.push(value);
   }
   if (type === 'active') newSignals.actives = Array.from(new Set([...(newSignals.actives || []), value]));
 
@@ -629,18 +638,9 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
 
   // Merge señales + tokens al reco y continuar
   const prev = await getReco(from);
-  const extraShould = [];
-  if (newSignals.species) extraShould.push(newSignals.species);
-  if (newSignals.form) extraShould.push(newSignals.form);
-  (newSignals.brands || []).forEach(b => extraShould.push(b));
-  (newSignals.packs || []).forEach(px => extraShould.push(px));
-  if (newSignals.weight_hint) extraShould.push(newSignals.weight_hint);
 
-  // MUST ahora incluye principios activos + la elección explícita
-  const extraMust = [
-    ...(newSignals.actives || []),
-    ...mustByAnswer
-  ].map(NORM);
+  // MUST solo para activos (compuestos químicos que SÍ deben estar)
+  const extraMust = (newSignals.actives || []).map(NORM);
 
   const mergedTokens = {
     must: Array.from(new Set([...(prev?.tokens?.must || []), ...extraMust])),
