@@ -1,140 +1,179 @@
-<h1 class="mb-3 d-flex align-items-center justify-content-between">
-  <span>Productos</span>
-  <span class="d-flex gap-2">
-    <a href="/admin/productos/new" class="btn btn-success btn-sm">➕ Nuevo</a>
-    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
-      ⬆️ Importar Excel
-    </button>
-    <button class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modalPurge">
-      🧨 Vaciar catálogo
-    </button>
-  </span>
-</h1>
-
-{{!-- Filtros / tamaño de página --}}
-<form method="GET" class="row g-2 align-items-end mb-3">
-  <div class="col-md-4">
-    <label class="form-label">Buscar</label>
-    <input type="text" name="q" class="form-control" value="{{q}}" placeholder="Nombre, presentación, marca, código…">
+{{! src/views/admin/productos/list.hbs }}
+<div class="container-fluid py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>
+      <i class="bi bi-box-seam"></i> Productos
+    </h2>
+    <div class="d-flex gap-2">
+      <a href="/admin/productos/new" class="btn btn-success btn-sm">
+        <i class="bi bi-plus-circle"></i> Nuevo
+      </a>
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
+        <i class="bi bi-upload"></i> Importar Excel
+      </button>
+      <button class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modalPurge">
+        <i class="bi bi-trash3"></i> Vaciar catálogo
+      </button>
+    </div>
   </div>
 
-  <div class="col-md-2">
-    <label class="form-label">Ordenar por</label>
-    <select name="sort" class="form-select">
-      <option value="nombre"   {{#if (eq sort "nombre")}}selected{{/if}}>Nombre</option>
-      <option value="precio"   {{#if (eq sort "precio")}}selected{{/if}}>Precio</option>
-      <option value="cantidad" {{#if (eq sort "cantidad")}}selected{{/if}}>Stock</option>
-      <option value="id"       {{#if (eq sort "id")}}selected{{/if}}>ID</option>
-    </select>
+  {{#if success}}
+    <div class="alert alert-success alert-dismissible fade show">
+      {{success}}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {{/if}}
+
+  {{#if error}}
+    <div class="alert alert-danger alert-dismissible fade show">
+      {{error}}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {{/if}}
+
+  {{!-- Filtros --}}
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <form method="GET" class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">Buscar</label>
+          <input type="text" name="q" class="form-control" value="{{q}}" placeholder="Nombre, presentación, marca, código…">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Ordenar por</label>
+          <select name="sort" class="form-select">
+            <option value="nombre" {{#if (eq sort "nombre")}}selected{{/if}}>Nombre</option>
+            <option value="precio" {{#if (eq sort "precio")}}selected{{/if}}>Precio</option>
+            <option value="cantidad" {{#if (eq sort "cantidad")}}selected{{/if}}>Stock</option>
+            <option value="id" {{#if (eq sort "id")}}selected{{/if}}>ID</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Dirección</label>
+          <select name="dir" class="form-select">
+            <option value="ASC" {{#if (eq dir "ASC")}}selected{{/if}}>Ascendente</option>
+            <option value="DESC" {{#if (eq dir "DESC")}}selected{{/if}}>Descendente</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Items por página</label>
+          <select name="pageSize" class="form-select">
+            <option value="25" {{#if (eq pageSize 25)}}selected{{/if}}>25</option>
+            <option value="50" {{#if (eq pageSize 50)}}selected{{/if}}>50</option>
+            <option value="100" {{#if (eq pageSize 100)}}selected{{/if}}>100</option>
+            <option value="200" {{#if (eq pageSize 200)}}selected{{/if}}>200</option>
+          </select>
+        </div>
+        <div class="col-md-2 d-grid">
+          <button class="btn btn-primary">Aplicar</button>
+        </div>
+      </form>
+    </div>
   </div>
 
-  <div class="col-md-2">
-    <label class="form-label">Dirección</label>
-    <select name="dir" class="form-select">
-      <option value="ASC"  {{#if (eq dir "ASC")}}selected{{/if}}>Ascendente</option>
-      <option value="DESC" {{#if (eq dir "DESC")}}selected{{/if}}>Descendente</option>
-    </select>
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <form id="bulk-form" action="/admin/productos/bulk" method="POST" class="d-flex align-items-center gap-2">
+          <select name="action" class="form-select form-select-sm" style="width: auto;" required>
+            <option value="" selected>— Acción masiva —</option>
+            <option value="delete"><i class="bi bi-trash"></i> Eliminar seleccionados</option>
+            <option value="show">👁 Mostrar (visible=true)</option>
+            <option value="hide">🙈 Ocultar (visible=false)</option>
+            <option value="alta">⬆️ Marcar en alta</option>
+            <option value="baja">⬇️ Marcar de baja</option>
+          </select>
+          <button class="btn btn-sm btn-secondary">Aplicar</button>
+        </form>
+        <small class="text-muted">Total: {{total}} productos • Página {{page}} de {{totalPages}}</small>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-hover table-sm">
+          <thead class="table-light">
+            <tr>
+              <th style="width: 40px;"><input type="checkbox" id="chk-all"></th>
+              <th style="width: 60px;">ID</th>
+              <th style="width: 100px;">Código</th>
+              <th>Nombre</th>
+              <th style="width: 100px;">Precio</th>
+              <th style="width: 80px;">Stock</th>
+              <th style="width: 80px;">Visible</th>
+              <th style="width: 80px;">De baja</th>
+              <th style="width: 120px;" class="text-end">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+          {{#each productos}}
+            <tr>
+              <td><input type="checkbox" class="chk-row" value="{{id}}"></td>
+              <td>{{id}}</td>
+              <td><small class="text-muted">{{id_articulo}}</small></td>
+              <td>{{nombre}}</td>
+              <td>${{precio}}</td>
+              <td>{{cantidad}}</td>
+              <td>
+                {{#if visible}}
+                  <span class="badge bg-success">Sí</span>
+                {{else}}
+                  <span class="badge bg-secondary">No</span>
+                {{/if}}
+              </td>
+              <td>
+                {{#if debaja}}
+                  <span class="badge bg-danger">Baja</span>
+                {{else}}
+                  <span class="badge bg-success">Alta</span>
+                {{/if}}
+              </td>
+              <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                  <a class="btn btn-outline-primary" href="/admin/productos/{{id}}/edit">
+                    <i class="bi bi-pencil"></i>
+                  </a>
+                  <button
+                    class="btn btn-outline-danger btn-confirmar-eliminar"
+                    data-id="{{id}}"
+                    data-nombre="{{nombre}}"
+                    data-entity="producto"
+                    data-url="/admin/productos">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          {{else}}
+            <tr>
+              <td colspan="9" class="text-center text-muted py-4">
+                No hay productos. <a href="/admin/productos/new">Crear uno nuevo</a>
+              </td>
+            </tr>
+          {{/each}}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
-  <div class="col-md-2">
-    <label class="form-label">Items por página</label>
-    <select name="pageSize" class="form-select">
-      <option value="25"  {{#if (eq pageSize 25)}}selected{{/if}}>25</option>
-      <option value="50"  {{#if (eq pageSize 50)}}selected{{/if}}>50</option>
-      <option value="100" {{#if (eq pageSize 100)}}selected{{/if}}>100</option>
-      <option value="200" {{#if (eq pageSize 200)}}selected{{/if}}>200</option>
-    </select>
-  </div>
-
-  <div class="col-md-2 d-grid">
-    <button class="btn btn-primary">Aplicar</button>
-  </div>
-</form>
-
-<div class="d-flex justify-content-between align-items-center mb-2">
-  <form id="bulk-form" action="/admin/productos/bulk" method="POST" class="d-flex align-items-center gap-2">
-    <select name="action" class="form-select form-select-sm" required>
-      <option value="" selected>— Acción masiva —</option>
-      <option value="delete">🗑 Eliminar seleccionados</option>
-      <option value="show">👁 Mostrar (visible=true)</option>
-      <option value="hide">🙈 Ocultar (visible=false)</option>
-      <option value="alta">⬆️ Marcar en alta (debaja=false)</option>
-      <option value="baja">⬇️ Marcar de baja (debaja=true)</option>
-    </select>
-    <button class="btn btn-sm btn-secondary">Aplicar</button>
-  </form>
-
-  <small class="text-muted">Total: {{total}} productos • Página {{page}} de {{totalPages}}</small>
-</div>
-
-<div class="table-responsive">
-  <table class="table table-striped align-middle">
-    <thead>
-      <tr>
-        <th><input type="checkbox" id="chk-all"></th>
-        <th>ID</th>
-        <th>Código</th>
-        <th>Nombre</th>
-        <th>Precio</th>
-        <th>Stock</th>
-        <th>Visible</th>
-        <th>De baja</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-    {{#each productos}}
-      <tr>
-        <td><input type="checkbox" class="chk-row" value="{{id}}"></td>
-        <td>{{id}}</td>
-        <td>{{id_articulo}}</td>
-        <td>{{nombre}}</td>
-        <td>${{precio}}</td>
-        <td>{{cantidad}}</td>
-        <td>{{#if visible}}✔{{else}}✖{{/if}}</td>
-        <td>{{#if debaja}}✔{{else}}—{{/if}}</td>
-        <td class="text-nowrap">
-          <a class="btn btn-sm btn-primary" href="/admin/productos/{{id}}/edit">Editar</a>
-          <button
-            class="btn btn-sm btn-danger btn-confirmar-eliminar"
-            data-id="{{id}}"
-            data-nombre="{{nombre}}"
-            data-entity="producto"
-            data-url="/admin/productos"
-          >🗑</button>
-        </td>
-      </tr>
-    {{/each}}
-    </tbody>
-  </table>
-</div>
-
-{{!-- Paginación --}}
-{{#if (gt totalPages 1)}}
-<nav aria-label="Paginación" class="mt-3">
-  <ul class="pagination justify-content-center flex-wrap">
-    {{!-- Prev --}}
-    <li class="page-item {{#if (eq page 1)}}disabled{{/if}}">
-      <a class="page-link"
-         href="?q={{q}}&sort={{sort}}&dir={{dir}}&pageSize={{pageSize}}&page={{max 1 (add page -1)}}">Anterior</a>
-    </li>
-
-    {{!-- Números (ventana de 7 páginas) --}}
-    {{#each (pageWindow page totalPages 7)}}
-      <li class="page-item {{#if (eq ../page this)}}active{{/if}}">
-        <a class="page-link"
-           href="?q={{../q}}&sort={{../sort}}&dir={{../dir}}&pageSize={{../pageSize}}&page={{this}}">{{this}}</a>
+  {{!-- Paginación --}}
+  {{#if (gt totalPages 1)}}
+  <nav aria-label="Paginación" class="mt-3">
+    <ul class="pagination justify-content-center flex-wrap">
+      <li class="page-item {{#if (eq page 1)}}disabled{{/if}}">
+        <a class="page-link" href="?q={{q}}&sort={{sort}}&dir={{dir}}&pageSize={{pageSize}}&page={{max 1 (add page -1)}}">Anterior</a>
       </li>
-    {{/each}}
-
-    {{!-- Next --}}
-    <li class="page-item {{#if (eq page totalPages)}}disabled{{/if}}">
-      <a class="page-link"
-         href="?q={{q}}&sort={{sort}}&dir={{dir}}&pageSize={{pageSize}}&page={{min totalPages (add page 1)}}">Siguiente</a>
-    </li>
-  </ul>
-</nav>
-{{/if}}
+      {{#each (pageWindow page totalPages 7)}}
+        <li class="page-item {{#if (eq ../page this)}}active{{/if}}">
+          <a class="page-link" href="?q={{../q}}&sort={{../sort}}&dir={{../dir}}&pageSize={{../pageSize}}&page={{this}}">{{this}}</a>
+        </li>
+      {{/each}}
+      <li class="page-item {{#if (eq page totalPages)}}disabled{{/if}}">
+        <a class="page-link" href="?q={{q}}&sort={{sort}}&dir={{dir}}&pageSize={{pageSize}}&page={{min totalPages (add page 1)}}">Siguiente</a>
+      </li>
+    </ul>
+  </nav>
+  {{/if}}
+</div>
 
 {{> modalConfirm }}
 
@@ -143,10 +182,10 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <form action="/admin/productos/import-excel" method="POST" enctype="multipart/form-data"
-        onsubmit="const btn = this.querySelector('button[type=submit]'); btn.disabled = true; btn.querySelector('.spinner-border').classList.remove('d-none');">
+        onsubmit="const btn = this.querySelector('button[type=submit]'); btn.disabled = true;">
         <div class="modal-header">
           <h5 class="modal-title">Importar desde Excel</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
           <div class="mb-3">
@@ -156,7 +195,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          {{> spinnerSubmitBtn label="Importar" }}
+          <button type="submit" class="btn btn-primary">Importar</button>
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         </div>
       </form>
@@ -172,7 +211,7 @@
         onsubmit="return confirm('Esta acción eliminará TODO el catálogo. ¿Confirmás?');">
         <div class="modal-header">
           <h5 class="modal-title text-danger">Vaciar catálogo (acción destructiva)</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
           <p>Escribí <strong>ELIMINAR-TODO</strong> para confirmar.</p>
@@ -187,67 +226,51 @@
   </div>
 </div>
 
-{{!-- Alertas flash --}}
-{{#if success}}
-  <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
-    ✅ {{success}}
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-  </div>
-{{/if}}
-{{#if error}}
-  <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
-    ❌ {{error}}
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-  </div>
-{{/if}}
-
 <script>
-  // Selección masiva + bulk post
-  document.addEventListener('DOMContentLoaded', () => {
-    const chkAll = document.getElementById('chk-all');
-    const chkRows = [...document.querySelectorAll('.chk-row')];
-    const bulkForm = document.getElementById('bulk-form');
+document.addEventListener('DOMContentLoaded', () => {
+  const chkAll = document.getElementById('chk-all');
+  const chkRows = [...document.querySelectorAll('.chk-row')];
+  const bulkForm = document.getElementById('bulk-form');
 
-    chkAll?.addEventListener('change', () => {
-      chkRows.forEach(c => c.checked = chkAll.checked);
-    });
+  chkAll?.addEventListener('change', () => {
+    chkRows.forEach(c => c.checked = chkAll.checked);
+  });
 
-    bulkForm?.addEventListener('submit', (e) => {
-      const selected = chkRows.filter(c => c.checked).map(c => c.value);
-      if (!selected.length) {
-        e.preventDefault();
-        alert('Seleccioná al menos un producto.');
-        return false;
-      }
-      selected.forEach(id => {
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'ids';
-        input.value = id;
-        bulkForm.appendChild(input);
-      });
-    });
-
-    // Modal confirmación por fila
-    document.addEventListener('click', (event) => {
-      const btn = event.target.closest('.btn-confirmar-eliminar');
-      if (!btn) return;
-
-      const id     = btn.dataset.id;
-      const nombre = btn.dataset.nombre;
-      const entity = btn.dataset.entity || 'registro';
-      const url    = btn.dataset.url;
-
-      const confirmNombre = document.getElementById('confirm-nombre');
-      const confirmEntity = document.getElementById('confirm-entity');
-      const confirmForm   = document.getElementById('confirm-form');
-
-      confirmNombre.textContent = nombre;
-      confirmEntity.textContent = entity;
-      confirmForm.action = `${url}/${id}?_method=DELETE`;
-
-      const modal = new bootstrap.Modal(document.getElementById('confirmModal'));
-      modal.show();
+  bulkForm?.addEventListener('submit', (e) => {
+    const selected = chkRows.filter(c => c.checked).map(c => c.value);
+    if (!selected.length) {
+      e.preventDefault();
+      alert('Seleccioná al menos un producto.');
+      return false;
+    }
+    selected.forEach(id => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'ids';
+      input.value = id;
+      bulkForm.appendChild(input);
     });
   });
+
+  document.addEventListener('click', (event) => {
+    const btn = event.target.closest('.btn-confirmar-eliminar');
+    if (!btn) return;
+
+    const id = btn.dataset.id;
+    const nombre = btn.dataset.nombre;
+    const entity = btn.dataset.entity || 'registro';
+    const url = btn.dataset.url;
+
+    const confirmNombre = document.getElementById('confirm-nombre');
+    const confirmEntity = document.getElementById('confirm-entity');
+    const confirmForm = document.getElementById('confirm-form');
+
+    confirmNombre.textContent = nombre;
+    confirmEntity.textContent = entity;
+    confirmForm.action = `${url}/${id}?_method=DELETE`;
+
+    const modal = new bootstrap.Modal(document.getElementById('confirmModal'));
+    modal.show();
+  });
+});
 </script>

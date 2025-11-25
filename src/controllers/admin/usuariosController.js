@@ -1,6 +1,11 @@
 // src/controllers/admin/usuariosController.js
 import { Op } from 'sequelize';
-import { EjecutivoCuenta, Usuario } from '../../models/index.js';
+import {
+  EjecutivoCuenta,
+  Usuario,
+  CondicionComercial,
+  UsuarioCondicionComercial
+} from '../../models/index.js';
 import bcrypt from 'bcrypt';
 import XLSX from 'xlsx';
 import multer from 'multer';
@@ -10,72 +15,143 @@ export const uploadExcel = multer().single('archivo');
 /* ───────── Listado ───────── */
 export const list = async (req, res) => {
   const pageSize = Math.min(Math.max(parseInt(req.query.pageSize || '25', 10), 5), 200);
-  const page     = Math.max(parseInt(req.query.page || '1', 10), 1);
-  const q        = (req.query.q || '').trim();
+  const page = Math.max(parseInt(req.query.page || '1', 10), 1);
+  const q = (req.query.q || '').trim();
 
   const sortAllow = ['nombre', 'phone', 'cuit', 'email', 'role', 'id'];
-  const sort      = sortAllow.includes(req.query.sort) ? req.query.sort : 'nombre';
-  const dir       = req.query.dir === 'DESC' ? 'DESC' : 'ASC';
+  const sort = sortAllow.includes(req.query.sort) ? req.query.sort : 'nombre';
+  const dir = req.query.dir === 'DESC' ? 'DESC' : 'ASC';
 
   const where = q
     ? {
-        [Op.or]: [
-          { nombre: { [Op.like]: `%${q}%` } },
-          { phone : { [Op.like]: `%${q}%` } },
-          { cuit  : { [Op.like]: `%${q}%` } },
-          { email : { [Op.like]: `%${q}%` } }
-        ]
-      }
+      [Op.or]: [
+        { nombre: { [Op.like]: `%${q}%` } },
+        { phone: { [Op.like]: `%${q}%` } },
+        { cuit: { [Op.like]: `%${q}%` } },
+        { email: { [Op.like]: `%${q}%` } }
+      ]
+    }
     : {};
 
   const { rows, count } = await Usuario.findAndCountAll({
     where,
-    order : [[sort, dir], ['id', 'ASC']],
-    limit : pageSize,
+    include: [
+      {
+        model: EjecutivoCuenta,
+        as: 'EjecutivoCuenta',
+        required: false,
+        attributes: ['id', 'nombre']
+      },
+      {
+        model: CondicionComercial,
+        through: UsuarioCondicionComercial,
+        required: false,
+        attributes: ['id', 'codigo', 'nombre']
+      }
+    ],
+    order: [[sort, dir], ['id', 'ASC']],
+    limit: pageSize,
     offset: (page - 1) * pageSize
   });
 
+  const usuariosPlain = rows.map(r => r.toJSON());
+  console.log('Usuarios data sample:', JSON.stringify(usuariosPlain[0], null, 2));
+
   res.render('admin/usuarios/list', {
     title: 'Usuarios',
-    usuarios  : rows.map(r => r.get({ plain: true })),
+    usuarios: usuariosPlain,
     q, page, pageSize, sort, dir,
-    total     : count,
+    total: count,
     totalPages: Math.max(Math.ceil(count / pageSize), 1),
     success: req.flash?.('success'),
-    error  : req.flash?.('error')
+    error: req.flash?.('error')
   });
 };
 
-/* ───────── Form ───────── */
-export const formNew = (_req, res) => {
-  res.render('admin/usuarios/form', { title: 'Nuevo usuario', usuario: {} });
+export const formNew = async (req, res) => {
+  const ejecutivos = await EjecutivoCuenta.findAll({ order: [['nombre', 'ASC']] });
+  const condiciones = await CondicionComercial.findAll({ order: [['codigo', 'ASC']] });
+
+  res.render('admin/usuarios/form', {
+    title: 'Nuevo usuario',
+    usuario: {},
+    ejecutivos: ejecutivos.map(e => e.toJSON()),
+    condiciones: condiciones.map(c => c.toJSON())
+  });
 };
 
 export const formEdit = async (req, res) => {
-  const user = await Usuario.findByPk(req.params.id);
+  const user = await Usuario.findByPk(req.params.id, {
+    include: [
+      { model: CondicionComercial, through: UsuarioCondicionComercial }
+    ]
+  });
   if (!user) return res.redirect('/admin/usuarios');
+
+  const ejecutivos = await EjecutivoCuenta.findAll({ order: [['nombre', 'ASC']] });
+  const condiciones = await CondicionComercial.findAll({ order: [['codigo', 'ASC']] });
+
+  // IDs de condiciones asignadas
+  const condicionesAsignadas = user.CondicionComercials?.map(c => c.id) || [];
 
   res.render('admin/usuarios/form', {
     title: `Editar ${user.nombre || user.phone}`,
-    usuario: user,
+    usuario: user.toJSON(),
+    ejecutivos: ejecutivos.map(e => e.toJSON()),
+    condiciones: condiciones.map(c => c.toJSON()),
+    condicionesAsignadas,
     isEdit: true
   });
 };
 
 /* ───────── CRUD ───────── */
 export const create = async (req, res) => {
-  const { nombre, phone, cuit, email, role, password } = req.body;
-  const data = { nombre, phone, cuit, email, role };
+  const { nombre, phone, cuit, email, role, password, ejecutivoId, condicionId } = req.body;
+  const data = {
+    nombre, phone, cuit, email, role,
+    ejecutivoId: ejecutivoId || null
+  };
+
   if (role === 'admin' && password) data.password = await bcrypt.hash(password, 10);
-  await Usuario.create(data);
+
+  const nuevoUsuario = await Usuario.create(data);
+
+  // Asignar condición comercial si se seleccionó
+  if (condicionId) {
+    await nuevoUsuario.setCondicionComercials([condicionId], {
+      through: { vigencia_desde: new Date(), es_principal: true }
+    });
+  }
+
   res.redirect('/admin/usuarios');
 };
 
 export const update = async (req, res) => {
-  const { nombre, phone, cuit, email, role, password } = req.body;
-  const data = { nombre, phone, cuit, email, role };
+  const { nombre, phone, cuit, email, role, password, ejecutivoId, condicionId } = req.body;
+  const data = {
+    nombre, phone, cuit, email, role,
+    ejecutivoId: ejecutivoId || null
+  };
+
   if (role === 'admin' && password) data.password = await bcrypt.hash(password, 10);
-  await Usuario.update(data, { where: { id: req.params.id } });
+
+  const usuario = await Usuario.findByPk(req.params.id);
+  if (usuario) {
+    await usuario.update(data);
+
+    // Actualizar condición comercial
+    if (condicionId) {
+      // Reemplaza todas las condiciones con la nueva (o vacía si no se envió nada y manejamos array)
+      // Si condicionId es un solo valor (radio/select simple):
+      await usuario.setCondicionComercials([condicionId], {
+        through: { vigencia_desde: new Date(), es_principal: true }
+      });
+    } else {
+      // Si se quiere permitir desasignar, descomentar:
+      // await usuario.setCondicionComercials([]);
+    }
+  }
+
   req.flash('success', `Usuario ${nombre || phone} actualizado con éxito`);
   res.redirect('/admin/usuarios');
 };
@@ -93,25 +169,25 @@ export const importExcel = async (req, res) => {
   try {
     if (!req.file) { req.flash('error', 'Debés adjuntar un archivo .xlsx'); return res.redirect('/admin/usuarios'); }
 
-    const wb    = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows  = XLSX.utils.sheet_to_json(sheet, { defval: null });
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
     if (!rows.length) { req.flash('error', 'La hoja está vacía'); return res.redirect('/admin/usuarios'); }
 
-    const usuarios      = [];
+    const usuarios = [];
     const ejecutivosMap = {}; // { Id_Ejecutivo: { nombre, phone, email } }
 
     const normalizeCuit = cuit => cuit ? String(cuit).replace(/\D/g, '').padStart(11, '0').slice(0, 11) : null;
-    const extractPhone  = str => { if (!str) return null; const m = String(str).match(/\d{8,}/g); return m ? m.find(n => !/^0+$/.test(n)) || null : null; };
-    const isEmail       = str => /\S+@\S+\.\S+/.test(str || '');
+    const extractPhone = str => { if (!str) return null; const m = String(str).match(/\d{8,}/g); return m ? m.find(n => !/^0+$/.test(n)) || null : null; };
+    const isEmail = str => /\S+@\S+\.\S+/.test(str || '');
 
     for (const r of rows) {
-      const nombreCliente   = r['Razon_Social'] || r['Empresa'];
-      const cuit            = normalizeCuit(r['CUIT']);
+      const nombreCliente = r['Razon_Social'] || r['Empresa'];
+      const cuit = normalizeCuit(r['CUIT']);
       const telefonoCliente = extractPhone(r['Telefono_Cliente']);
 
-      const idEjecutivo       = r['Id_Ejecutivo'];
-      const nombreEjecutivo   = r['Nombre_Ejecutivo'];
+      const idEjecutivo = r['Id_Ejecutivo'];
+      const nombreEjecutivo = r['Nombre_Ejecutivo'];
       const contactoEjecutivo = r['Contacto_Ejecutivo'];
 
       if (!nombreCliente && !cuit && !telefonoCliente) continue;
@@ -119,8 +195,8 @@ export const importExcel = async (req, res) => {
       if (idEjecutivo && nombreEjecutivo && !ejecutivosMap[idEjecutivo]) {
         ejecutivosMap[idEjecutivo] = {
           nombre: nombreEjecutivo,
-          phone : isEmail(contactoEjecutivo) ? null : extractPhone(contactoEjecutivo),
-          email : isEmail(contactoEjecutivo) ? contactoEjecutivo : null
+          phone: isEmail(contactoEjecutivo) ? null : extractPhone(contactoEjecutivo),
+          email: isEmail(contactoEjecutivo) ? contactoEjecutivo : null
         };
       }
 
@@ -153,7 +229,7 @@ export const importExcel = async (req, res) => {
       nombre: u.nombre, phone: u.phone, cuit: u.cuit, role: 'vet', ejecutivoId: ejecutivosDB[u.idEjecutivo] || null
     }));
 
-    await Usuario.bulkCreate(payload, { updateOnDuplicate: ['nombre','phone','cuit','role','ejecutivoId'], validate: true });
+    await Usuario.bulkCreate(payload, { updateOnDuplicate: ['nombre', 'phone', 'cuit', 'role', 'ejecutivoId'], validate: true });
 
     req.flash('success', `Importados/actualizados ${payload.length} usuarios y ${Object.keys(ejecutivosDB).length} ejecutivos`);
     res.redirect('/admin/usuarios');

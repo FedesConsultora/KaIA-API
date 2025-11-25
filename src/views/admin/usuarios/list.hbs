@@ -1,134 +1,192 @@
-<h1 class="mb-3 d-flex align-items-center justify-content-between">
-  <span>Usuarios</span>
-  <span class="d-flex gap-2">
-    <a href="/admin/usuarios/new" class="btn btn-success btn-sm">➕ Nuevo</a>
-    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
-      ⬆️ Importar Excel
-    </button>
-  </span>
-</h1>
-
-{{!-- Filtros / orden / tamaño de página --}}
-<form method="GET" class="row g-2 align-items-end mb-3" action="/admin/usuarios">
-  <div class="col-md-4">
-    <label class="form-label">Buscar</label>
-    <input type="text" name="q" class="form-control" value="{{q}}" placeholder="Nombre, teléfono, CUIT o email">
+{{! src/views/admin/usuarios/list.hbs }}
+<div class="container-fluid py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>
+      <i class="bi bi-people"></i> Usuarios
+    </h2>
+    <div class="d-flex gap-2">
+      <a href="/admin/usuarios/new" class="btn btn-success btn-sm">
+        <i class="bi bi-plus-circle"></i> Nuevo
+      </a>
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalExcel">
+        <i class="bi bi-upload"></i> Importar Excel
+      </button>
+    </div>
   </div>
-  <div class="col-md-2">
-    <label class="form-label">Ordenar por</label>
-    <select name="sort" class="form-select">
-      <option value="nombre" {{#if (eq sort "nombre")}}selected{{/if}}>Nombre</option>
-      <option value="phone"  {{#if (eq sort "phone")}}selected{{/if}}>Teléfono</option>
-      <option value="cuit"   {{#if (eq sort "cuit")}}selected{{/if}}>CUIT</option>
-      <option value="email"  {{#if (eq sort "email")}}selected{{/if}}>Email</option>
-      <option value="role"   {{#if (eq sort "role")}}selected{{/if}}>Rol</option>
-      <option value="id"     {{#if (eq sort "id")}}selected{{/if}}>ID</option>
-    </select>
+
+  {{#if success}}
+  <div class="alert alert-success alert-dismissible fade show">
+    {{success}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
   </div>
-  <div class="col-md-2">
-    <label class="form-label">Dirección</label>
-    <select name="dir" class="form-select">
-      <option value="ASC"  {{#if (eq dir "ASC")}}selected{{/if}}>Ascendente</option>
-      <option value="DESC" {{#if (eq dir "DESC")}}selected{{/if}}>Descendente</option>
-    </select>
+  {{/if}}
+
+  {{#if error}}
+  <div class="alert alert-danger alert-dismissible fade show">
+    {{error}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
   </div>
-  <div class="col-md-2">
-    <label class="form-label">Items por página</label>
-    <select name="pageSize" class="form-select">
-      {{#each (array 25 50 100 200)}}
-        <option value="{{this}}" {{#if (eq ../pageSize this)}}selected{{/if}}>{{this}}</option>
-      {{/each}}
-    </select>
+  {{/if}}
+
+  {{!-- Filtros --}}
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <form method="GET" class="row g-2 align-items-end" action="/admin/usuarios">
+        <div class="col-md-4">
+          <label class="form-label">Buscar</label>
+          <input type="text" name="q" class="form-control" value="{{q}}" placeholder="Nombre, teléfono, CUIT o email">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Ordenar por</label>
+          <select name="sort" class="form-select">
+            <option value="nombre" {{#if (eq sort "nombre" )}}selected{{/if}}>Nombre</option>
+            <option value="phone" {{#if (eq sort "phone" )}}selected{{/if}}>Teléfono</option>
+            <option value="cuit" {{#if (eq sort "cuit" )}}selected{{/if}}>CUIT</option>
+            <option value="email" {{#if (eq sort "email" )}}selected{{/if}}>Email</option>
+            <option value="role" {{#if (eq sort "role" )}}selected{{/if}}>Rol</option>
+            <option value="id" {{#if (eq sort "id" )}}selected{{/if}}>ID</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Dirección</label>
+          <select name="dir" class="form-select">
+            <option value="ASC" {{#if (eq dir "ASC" )}}selected{{/if}}>Ascendente</option>
+            <option value="DESC" {{#if (eq dir "DESC" )}}selected{{/if}}>Descendente</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Items por página</label>
+          <select name="pageSize" class="form-select">
+            {{#each (array 25 50 100 200)}}
+            <option value="{{this}}" {{#if (eq ../pageSize this)}}selected{{/if}}>{{this}}</option>
+            {{/each}}
+          </select>
+        </div>
+        <div class="col-md-2 d-grid">
+          <button class="btn btn-primary">Aplicar</button>
+        </div>
+      </form>
+    </div>
   </div>
-  <div class="col-md-2 d-grid">
-    <button class="btn btn-primary">Aplicar</button>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <form id="bulk-form" action="/admin/usuarios/bulk" method="POST" class="d-flex align-items-center gap-2">
+          <select name="action" class="form-select form-select-sm" style="width: auto;" required>
+            <option value="" selected>— Acción masiva —</option>
+            <option value="delete">🗑 Eliminar seleccionados</option>
+          </select>
+          <button class="btn btn-sm btn-secondary">Aplicar</button>
+        </form>
+        <small class="text-muted">Total: {{total}} usuarios • Página {{page}} de {{totalPages}}</small>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-hover table-sm">
+          <thead class="table-light">
+            <tr>
+              <th style="width: 40px;"><input type="checkbox" id="chk-all"></th>
+              <th style="width: 60px;">ID</th>
+              <th>Nombre</th>
+              <th style="width: 120px;">Teléfono</th>
+              <th style="width: 120px;">CUIT</th>
+              <th style="width: 180px;">Email</th>
+              <th style="width: 80px;">Rol</th>
+              <th style="width: 140px;">Ejecutivo</th>
+              <th style="width: 120px;">Condición</th>
+              <th style="width: 100px;" class="text-end">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{#each usuarios}}
+            <tr>
+              <td><input type="checkbox" class="chk-row" value="{{id}}"></td>
+              <td>{{id}}</td>
+              <td>{{nombre}}</td>
+              <td><small>{{phone}}</small></td>
+              <td><small>{{cuit}}</small></td>
+              <td><small class="text-muted">{{email}}</small></td>
+              <td>
+                <span class="badge {{#if (eq role " admin")}}bg-danger{{else}}bg-primary{{/if}}">
+                  {{role}}
+                </span>
+              </td>
+              <td>
+                {{#if EjecutivoCuenta}}
+                <small class="text-muted">{{EjecutivoCuenta.nombre}}</small>
+                {{else}}
+                <small class="text-muted">-</small>
+                {{/if}}
+              </td>
+              <td>
+                {{#if CondicionComercials}}
+                {{#each CondicionComercials}}
+                <span class="badge bg-info">{{this.codigo}}</span>
+                {{/each}}
+                {{else}}
+                <small class="text-muted">-</small>
+                {{/if}}
+              </td>
+              <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                  <a class="btn btn-outline-primary" href="/admin/usuarios/{{id}}/edit">
+                    <i class="bi bi-pencil"></i>
+                  </a>
+                  <button class="btn btn-outline-danger btn-confirmar-eliminar" data-id="{{id}}"
+                    data-nombre="{{nombre}}" data-entity="usuario" data-url="/admin/usuarios">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {{else}}
+            <tr>
+              <td colspan="10" class="text-center text-muted py-4">
+                No hay usuarios. <a href="/admin/usuarios/new">Crear uno nuevo</a>
+              </td>
+            </tr>
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
-</form>
 
-<div class="d-flex justify-content-between align-items-center mb-2">
-  <form id="bulk-form" action="/admin/usuarios/bulk" method="POST" class="d-flex align-items-center gap-2">
-    <select name="action" class="form-select form-select-sm" required>
-      <option value="" selected>— Acción masiva —</option>
-      <option value="delete">🗑 Eliminar seleccionados (esta página)</option>
-    </select>
-    <button class="btn btn-sm btn-secondary">Aplicar</button>
-  </form>
-
-  <small class="text-muted">Total: {{total}} usuarios • Página {{page}} de {{totalPages}}</small>
-</div>
-
-<div class="table-responsive">
-  <table class="table table-striped align-middle">
-    <thead>
-      <tr>
-        <th><input type="checkbox" id="chk-all"></th>
-        <th>ID</th>
-        <th>Nombre</th>
-        <th>Teléfono</th>
-        <th>CUIT</th>
-        <th>Email</th>
-        <th>Rol</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-    {{#each usuarios}}
-      <tr>
-        <td><input type="checkbox" class="chk-row" value="{{id}}"></td>
-        <td>{{id}}</td>
-        <td>{{nombre}}</td>
-        <td>{{phone}}</td>
-        <td>{{cuit}}</td>
-        <td>{{email}}</td>
-        <td><span class="badge {{#if (eq role "admin")}}bg-primary{{else}}bg-secondary{{/if}}">{{role}}</span></td>
-        <td class="text-nowrap">
-          <a class="btn btn-sm btn-primary" href="/admin/usuarios/{{id}}/edit">Editar</a>
-          <button
-            class="btn btn-sm btn-danger btn-confirmar-eliminar"
-            data-id="{{id}}"
-            data-nombre="{{nombre}}"
-            data-entity="usuario"
-            data-url="/admin/usuarios"
-          >🗑</button>
-        </td>
-      </tr>
-    {{/each}}
-    </tbody>
-  </table>
-</div>
-
-{{!-- Paginación --}}
-{{#if (gt totalPages 1)}}
-<nav aria-label="Paginación" class="mt-3">
-  <ul class="pagination justify-content-center flex-wrap">
-    <li class="page-item {{#if (eq page 1)}}disabled{{/if}}">
-      <a class="page-link" href="/admin/usuarios?page={{dec page}}&q={{q}}&sort={{sort}}&dir={{dir}}&pageSize={{pageSize}}">«</a>
-    </li>
-
-    {{#each (range 1 totalPages)}}
-      <li class="page-item {{#if (eq ../page this)}}active{{/if}}">
-        <a class="page-link" href="/admin/usuarios?page={{this}}&q={{../q}}&sort={{../sort}}&dir={{../dir}}&pageSize={{../pageSize}}">{{this}}</a>
+  {{!-- Paginación --}}
+  {{#if (gt totalPages 1)}}
+  <nav aria-label="Paginación" class="mt-3">
+    <ul class="pagination justify-content-center flex-wrap">
+      <li class="page-item {{#if (eq page 1)}}disabled{{/if}}">
+        <a class="page-link"
+          href="/admin/usuarios?page={{dec page}}&q={{q}}&sort={{sort}}&dir={{dir}}&pageSize={{pageSize}}">«</a>
       </li>
-    {{/each}}
-
-    <li class="page-item {{#if (eq page totalPages)}}disabled{{/if}}">
-      <a class="page-link" href="/admin/usuarios?page={{inc page}}&q={{q}}&sort={{sort}}&dir={{dir}}&pageSize={{pageSize}}">»</a>
-    </li>
-  </ul>
-</nav>
-{{/if}}
+      {{#each (range 1 totalPages)}}
+      <li class="page-item {{#if (eq ../page this)}}active{{/if}}">
+        <a class="page-link"
+          href="/admin/usuarios?page={{this}}&q={{../q}}&sort={{../sort}}&dir={{../dir}}&pageSize={{../pageSize}}">{{this}}</a>
+      </li>
+      {{/each}}
+      <li class="page-item {{#if (eq page totalPages)}}disabled{{/if}}">
+        <a class="page-link"
+          href="/admin/usuarios?page={{inc page}}&q={{q}}&sort={{sort}}&dir={{dir}}&pageSize={{pageSize}}">»</a>
+      </li>
+    </ul>
+  </nav>
+  {{/if}}
+</div>
 
 {{> modalConfirm }}
 
-<!-- Modal Importación Excel (usa tu importExcel del controller) -->
+<!-- Modal Importación Excel -->
 <div class="modal fade" id="modalExcel" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
       <form action="/admin/usuarios/import-excel" method="POST" enctype="multipart/form-data"
-        onsubmit="const btn = this.querySelector('button[type=submit]'); btn.disabled = true; btn.querySelector('.spinner-border')?.classList.remove('d-none');">
+        onsubmit="const btn = this.querySelector('button[type=submit]'); btn.disabled = true;">
         <div class="modal-header">
           <h5 class="modal-title">Importar usuarios/ejecutivos (Excel)</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
           <div class="mb-3">
@@ -138,30 +196,13 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-primary" type="submit">
-            <span class="spinner-border spinner-border-sm d-none me-2"></span>
-            Importar
-          </button>
+          <button class="btn btn-primary" type="submit">Importar</button>
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         </div>
       </form>
     </div>
   </div>
 </div>
-
-{{!-- Alertas flash --}}
-{{#if success}}
-  <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
-    ✅ {{success}}
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-  </div>
-{{/if}}
-{{#if error}}
-  <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
-    ❌ {{error}}
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-  </div>
-{{/if}}
 
 <script>
   document.addEventListener('DOMContentLoaded', () => {
@@ -183,19 +224,18 @@
       });
     });
 
-    // Modal confirmación por fila
     document.addEventListener('click', (event) => {
       const btn = event.target.closest('.btn-confirmar-eliminar');
       if (!btn) return;
 
-      const id     = btn.dataset.id;
+      const id = btn.dataset.id;
       const nombre = btn.dataset.nombre;
       const entity = btn.dataset.entity || 'registro';
-      const url    = btn.dataset.url;
+      const url = btn.dataset.url;
 
       const confirmNombre = document.getElementById('confirm-nombre');
       const confirmEntity = document.getElementById('confirm-entity');
-      const confirmForm   = document.getElementById('confirm-form');
+      const confirmForm = document.getElementById('confirm-form');
 
       confirmNombre.textContent = nombre;
       confirmEntity.textContent = entity;

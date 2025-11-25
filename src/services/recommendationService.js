@@ -32,13 +32,33 @@ function expandTerms(raw) {
   return Array.from(out);
 }
 
-export function toGPTProduct(p) {
+/**
+ * Convierte un producto a formato para GPT, aplicando descuentos si usuarioId está disponible
+ * @param {Object} p - Producto
+ * @param {number|null} usuarioId - ID del usuario (opcional)
+ * @returns {Promise<Object>} Producto formateado para GPT
+ */
+export async function toGPTProduct(p, usuarioId = null) {
+  let precio = p.precio ? Number(p.precio) : null;
+
+  // Si hay usuarioId y precio, intentar calcular descuento
+  if (usuarioId && precio) {
+    try {
+      const { calcularPrecioConDescuento } = await import('./pricingService.js');
+      const resultado = await calcularPrecioConDescuento({ producto: p, usuarioId });
+      precio = resultado.precioFinal;
+    } catch (e) {
+      // En caso de error, usar precio de lista
+      console.warn('Error calculando descuento en toGPTProduct:', e);
+    }
+  }
+
   return {
     id: p.id,
     nombre: p.nombre,
     marca: p.marca || '',
     presentacion: p.presentacion || '',
-    precio: p.precio ? Number(p.precio) : null,
+    precio,
     rubro: p.rubro || '',
     familia: p.familia || '',
     promo: p.Promocions?.[0]
@@ -53,10 +73,10 @@ function logDiversity(tag, arr = []) {
   const brands = new Set();
   const forms = new Set();
   for (const p of arr) {
-    const txt = norm(`${p.nombre} ${p.presentacion} ${p.rubro} ${p.familia} ${p.observaciones||''}`);
+    const txt = norm(`${p.nombre} ${p.presentacion} ${p.rubro} ${p.familia} ${p.observaciones || ''}`);
     const w = (txt.match(/\b(\d+(?:[.,]\d+)?)\s*(?:a|-|–|hasta)\s*(\d+(?:[.,]\d+)?)\s*kg\b/i) ||
-               txt.match(/hasta\s*(\d+(?:[.,]\d+)?)\s*kg\b/i) ||
-               txt.match(/\b(\d+(?:[.,]\d+)?)\s*kg\b/i)) ? 'peso' : null;
+      txt.match(/hasta\s*(\d+(?:[.,]\d+)?)\s*kg\b/i) ||
+      txt.match(/\b(\d+(?:[.,]\d+)?)\s*kg\b/i)) ? 'peso' : null;
     if (w) weights.add('peso');
 
     const mPack = txt.match(/\bx\s*(\d{1,2})\b/i);
@@ -72,14 +92,14 @@ function logDiversity(tag, arr = []) {
 }
 
 /* ========= Matching robusto para peso/pack ========= */
-function isWeightToken(t='') { return /\d/.test(t) && /(kg)/i.test(t); }
-function weightTokenRegex(t='') {
-  const s = String(t).toLowerCase().replace(/\s+/g,' ').trim();
+function isWeightToken(t = '') { return /\d/.test(t) && /(kg)/i.test(t); }
+function weightTokenRegex(t = '') {
+  const s = String(t).toLowerCase().replace(/\s+/g, ' ').trim();
   // rangos tipo "2–4 kg" / "2 - 4 kg" / "2 a 4 kg"
   const mR = s.match(/(\d+(?:[.,]\d+)?)\s*(?:–|-|a)\s*(\d+(?:[.,]\d+)?)\s*kg/);
   if (mR) {
-    const a = mR[1].replace(',','[.,]?');
-    const b = mR[2].replace(',','[.,]?');
+    const a = mR[1].replace(',', '[.,]?');
+    const b = mR[2].replace(',', '[.,]?');
     return new RegExp(`\\b(?:${a}\\s*(?:kg)?\\s*(?:a|–|-)\\s*${b}\\s*kg|${a}\\s*(?:a|–|-)\\s*${b}\\s*kg)\\b`);
   }
   // hasta / ≤
@@ -90,15 +110,15 @@ function weightTokenRegex(t='') {
   if (mGe) return new RegExp(`\\b(?:≥\\s*)?${mGe[1]}\\s*kg\\b|\\bdesde\\s*${mGe[1]}\\s*kg\\b`);
   // número simple "5 kg"
   const mN = s.match(/(\d+(?:[.,]\d+)?)\s*kg/);
-  if (mN)  return new RegExp(`\\b${mN[1]}\\s*kg\\b`);
+  if (mN) return new RegExp(`\\b${mN[1]}\\s*kg\\b`);
   return null;
 }
-function isPackToken(t='') {
+function isPackToken(t = '') {
   const s = String(t).toLowerCase().trim();
-  return /^x?\d{1,2}$/.test(s.replace(/\s+/g,'')) || /pack/.test(s);
+  return /^x?\d{1,2}$/.test(s.replace(/\s+/g, '')) || /pack/.test(s);
 }
-function packTokenRegex(t='') {
-  const n = String(t).toLowerCase().replace(/[^0-9]/g,'');
+function packTokenRegex(t = '') {
+  const n = String(t).toLowerCase().replace(/[^0-9]/g, '');
   if (!n) return null;
   return new RegExp(`\\b(?:x\\s*${n}|pack\\s*(?:de\\s*)?${n})\\b`);
 }
@@ -119,12 +139,13 @@ function tokenHit(H, t) {
 /**
  * Recomienda desde BBDD con apoyo opcional de tokens GPT y señales ricas.
  * @param {string} termRaw
- * @param {{ gpt?: { must?: string[], should?: string[], negate?: string[] }, signals?: object }} opts
+ * @param {{ gpt?: { must?: string[], should?: string[], negate?: string[] }, signals?: object, usuarioId?: number }} opts
  */
 export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   const term = (termRaw || '').trim();
   const gpt = opts?.gpt || {};
   const sig = opts?.signals || {};
+  const usuarioId = opts?.usuarioId || null;
 
   const must = Array.from(new Set([
     ...(gpt.must || []).map(norm),
@@ -236,13 +257,13 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
       (sig.packs || []).forEach(px => { if (px && tokenHit(H, px)) s += 2; });
       if (sig.weight_hint && tokenHit(H, sig.weight_hint)) s += 3;
 
-      // 💥 Penalización especie contrapuesta (evita “GATOS” cuando piden “PERROS”, y viceversa)
+      // 💥 Penalización especie contrapuesta (evita "GATOS" cuando piden "PERROS", y viceversa)
       const hasPerro = /\bperr[oa]s?\b/.test(H);
-      const hasGato  = /\bgat[oa]s?\b|felin[oa]s?/.test(H);
+      const hasGato = /\bgat[oa]s?\b|felin[oa]s?/.test(H);
       if (sig.species === 'perro' && hasGato && !hasPerro) s -= 8;
-      if (sig.species === 'gato'  && hasPerro && !hasGato) s -= 8;
+      if (sig.species === 'gato' && hasPerro && !hasGato) s -= 8;
 
-      // Disponibilidad leve
+      // Disponibilidad leve (NO mostrada al usuario, solo para scoring interno)
       s += (Number(p.cantidad) || 0) / 1000;
 
       return { p, s, hits, H };
@@ -260,9 +281,15 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
   // Top N para conversación (preferimos 3-4, tope 6)
   const TOP_N = 6;
-  const validos = ordered.slice(0, TOP_N).map(toGPTProduct);
+
+  // Convertir productos a formato GPT con precios calculados
+  const validos = await Promise.all(
+    ordered.slice(0, TOP_N).map(p => toGPTProduct(p, usuarioId))
+  );
   const top = validos[0] || null;
-  const similares = ordered.slice(TOP_N, TOP_N + 6).map(toGPTProduct);
+  const similares = await Promise.all(
+    ordered.slice(TOP_N, TOP_N + 6).map(p => toGPTProduct(p, usuarioId))
+  );
 
   if (DEBUG) console.log(`[RECO][OUT] validos=${validos.length} similares=${similares.length} top="${top?.nombre || '—'}"`);
 

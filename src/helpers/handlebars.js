@@ -3,10 +3,10 @@ export default {
   /* ─── Comparaciones ─── */
   eq: (a, b) => String(a) === String(b),
   ne: (a, b) => String(a) !== String(b),
-  lt: (a, b) => Number(a) <  Number(b),
-  gt: (a, b) => Number(a) >  Number(b),
+  lt: (a, b) => Number(a) < Number(b),
+  gt: (a, b) => Number(a) > Number(b),
   and: (a, b) => !!(a && b),
-  or : (a, b) => !!(a || b),
+  or: (a, b) => !!(a || b),
 
   /* ─── Aritmética / utilitarios ─── */
   add: (a, b) => Number(a) + Number(b),
@@ -41,21 +41,58 @@ export default {
 
     const half = Math.floor(W / 2);
     let start = p - half;
-    let end   = p + half;
+    let end = p + half;
 
     if (start < 1) { end += (1 - start); start = 1; }
-    if (end > T)   { start -= (end - T); end = T; }
+    if (end > T) { start -= (end - T); end = T; }
     if (start < 1) start = 1;
 
     const out = [];
     for (let i = start; i <= end; i++) out.push(i);
     return out;
   },
-  
+
   includes: (arr, val) => {
     if (!arr) return false;
     if (!Array.isArray(arr)) return false;
     const needle = String(val);
     return arr.some(x => String(x?.id ?? x) === needle);
+  },
+
+  /* ─── Formateo de fechas ─── */
+  formatDate: (date) => {
+    if (!date) return '-';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '-';
+    return d.toLocaleDateString('es-AR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  },
+
+  formatDateInput: (date) => {
+    if (!date) return '';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '';
+    // Formato YYYY-MM-DD para input type="date"
+    return d.toISOString().split('T')[0];
+  },
+
+  /* ─── Formateo de porcentajes ─── */
+  formatPercent: (decimal) => {
+    if (!decimal) return '0';
+    const num = Number(decimal);
+    if (isNaN(num)) return '0';
+    return (num * 100).toFixed(2);
+  },
+
+  /* ─── String utils ─── */
+  substring: (str, start, end) => {
+    if (!str) return '';
+    return String(str).substring(Number(start) || 0, Number(end));
   }
 };
+

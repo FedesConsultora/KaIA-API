@@ -1,0 +1,113 @@
+{{! src/views/admin/condiciones/form.hbs }}
+<div class="container-fluid py-4">
+    <div class="mb-4">
+        <a href="/admin/condiciones" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Volver
+        </a>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-tag"></i> {{title}}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {{#if error}}
+                    <div class="alert alert-danger">{{error}}</div>
+                    {{/if}}
+
+                    <form method="{{method}}" action="{{action}}">
+
+                        <div class="mb-3">
+                            <label for="codigo" class="form-label">Código *</label>
+                            <input type="text" class="form-control" id="codigo" name="codigo"
+                                value="{{condicion.codigo}}" placeholder="ej: COND-19" required>
+                            <small class="form-text text-muted">Código único de la condición</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="nombre" class="form-label">Nombre *</label>
+                            <input type="text" class="form-control" id="nombre" name="nombre"
+                                value="{{condicion.nombre}}" placeholder="ej: FARMACIA 5% - ALIMENTO 9.09%" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="descripcion" class="form-label">Descripción</label>
+                            <textarea class="form-control" id="descripcion" name="descripcion" rows="3"
+                                placeholder="Descripción detallada de la condición comercial">{{condicion.descripcion}}</textarea>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="vigencia_desde" class="form-label">Vigencia Desde</label>
+                                <input type="date" class="form-control" id="vigencia_desde" name="vigencia_desde"
+                                    value="{{formatDateInput condicion.vigencia_desde}}">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="vigencia_hasta" class="form-label">Vigencia Hasta</label>
+                                <input type="date" class="form-control" id="vigencia_hasta" name="vigencia_hasta"
+                                    value="{{formatDateInput condicion.vigencia_hasta}}">
+                            </div>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-save"></i> Guardar Condición
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            {{#if condicion.id}}
+            <div class="card shadow-sm mt-4">
+                <div class="card-header bg-secondary text-white">
+                    <h6 class="mb-0">
+                        <i class="bi bi-list-check"></i> Reglas de Descuento ({{reglas.length}})
+                    </h6>
+                </div>
+                <div class="card-body">
+                    {{#if reglas.length}}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Rubro</th>
+                                    <th>Familia</th>
+                                    <th>Marca</th>
+                                    <th>Producto ID</th>
+                                    <th>Descuento</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{#each reglas}}
+                                <tr>
+                                    <td>{{this.rubro}}</td>
+                                    <td>{{this.familia}}</td>
+                                    <td>{{this.marca}}</td>
+                                    <td>{{this.productoId}}</td>
+                                    <td>
+                                        <span class="badge bg-success">
+                                            {{formatPercent this.descuento}}%
+                                        </span>
+                                    </td>
+                                </tr>
+                                {{/each}}
+                            </tbody>
+                        </table>
+                    </div>
+                    {{else}}
+                    <p class="text-muted mb-0">
+                        Esta condición no tiene reglas definidas.
+                        Las reglas se crean mediante los scripts de importación.
+                    </p>
+                    {{/if}}
+                </div>
+            </div>
+            {{/if}}
+        </div>
+    </div>
+</div>

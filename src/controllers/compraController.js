@@ -1,4 +1,5 @@
 import { Compra, Producto, Promocion } from '../models/index.js';
+import { calcularPrecioConDescuento } from '../services/pricingService.js';
 
 export const registrarCompra = async (req, res) => {
   const { productoId, qty, promo_aplicada = null } = req.body;
@@ -8,7 +9,18 @@ export const registrarCompra = async (req, res) => {
     const producto = await Producto.findByPk(productoId);
     if (!producto) return res.status(404).json({ msg: 'Producto no encontrado' });
 
-    const precio_unit = producto.precio;
+    // Calcular precio con descuento si el usuario tiene condiciones comerciales
+    let precio_unit = producto.precio;
+    try {
+      const resultado = await calcularPrecioConDescuento({ producto, usuarioId: user.id });
+      precio_unit = resultado.precioFinal;
+      console.log(`[COMPRA] Usuario ${user.id} - Producto ${productoId} - Precio lista: ${producto.precio} - Precio final: ${precio_unit} - Descuento: ${resultado.descuento}%`);
+    } catch (e) {
+      console.warn('Error calculando descuento, usando precio de lista:', e);
+      // En caso de error, usar precio de lista
+      precio_unit = producto.precio;
+    }
+
     const subtotal = precio_unit * qty;
 
     const nueva = await Compra.create({

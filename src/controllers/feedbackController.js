@@ -1,6 +1,6 @@
 // src/controllers/feedbackController.js
 import { Op } from 'sequelize';
-import { Feedback } from '../models/index.js';
+import { Feedback, Usuario } from '../models/index.js';
 
 export async function registrarFeedback(req, res) {
   try {
@@ -49,9 +49,20 @@ export async function listarFeedback(req, res) {
 /** Listado Admin (vista) */
 export async function listAdmin(_req, res) {
   const rows = await Feedback.findAll({
-    order: [['creado_en', 'DESC']],     // 👈 usa tu columna real
+    include: [{
+      model: Usuario,
+      required: false,
+      attributes: ['id', 'nombre', 'email']
+    }],
+    order: [['creado_en', 'DESC']],
     limit: 500
   });
   const items = rows.map(r => r.get({ plain: true }));
-  res.render('admin/feedback/list', { title: 'Feedback', items });
+  res.render('admin/feedback/list', {
+    title: 'Feedback',
+    items,
+    success: _req.flash?.('success'),
+    error: _req.flash?.('error')
+  });
 }
+

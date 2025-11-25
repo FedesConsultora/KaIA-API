@@ -5,7 +5,7 @@ import multer from 'multer';
 export const uploadExcel = multer().single('archivo'); // reservado por si lo usás luego
 
 /* ───────── Listado ───────── */
-export const list = async (_req, res) => {
+export const list = async (req, res) => {
   const ejecutivos = (await EjecutivoCuenta.findAll({
     include: [{ model: Usuario, attributes: [] }],
     attributes: {
@@ -17,7 +17,31 @@ export const list = async (_req, res) => {
 
   res.render('admin/ejecutivos/list', {
     title: 'Ejecutivos',
-    ejecutivos
+    ejecutivos,
+    success: req.flash?.('success'),
+    error: req.flash?.('error')
+  });
+};
+
+/* ───────── Ver Clientes de Ejecutivo ───────── */
+export const viewClientes = async (req, res) => {
+  const ejecutivo = await EjecutivoCuenta.findByPk(req.params.id, {
+    include: [{
+      model: Usuario,
+      required: false,
+      order: [['nombre', 'ASC']]
+    }]
+  });
+
+  if (!ejecutivo) {
+    req.flash('error', 'Ejecutivo no encontrado');
+    return res.redirect('/admin/ejecutivos');
+  }
+
+  res.render('admin/ejecutivos/clientes', {
+    title: `Clientes de ${ejecutivo.nombre}`,
+    ejecutivo: ejecutivo.toJSON(),
+    clientes: ejecutivo.Usuarios || []
   });
 };
 
@@ -30,9 +54,9 @@ export const formEdit = async (req, res) => {
   if (!ejecutivo) return res.redirect('/admin/ejecutivos');
 
   res.render('admin/ejecutivos/form', {
-    title   : `Editar ${ejecutivo.nombre}`,
+    title: `Editar ${ejecutivo.nombre}`,
     ejecutivo,
-    isEdit  : true
+    isEdit: true
   });
 };
 
@@ -61,3 +85,4 @@ export const remove = async (req, res) => {
   req.flash('success', `Ejecutivo ${ej.nombre} eliminado`);
   res.redirect('/admin/ejecutivos');
 };
+

@@ -1,6 +1,6 @@
 # Dump técnico de módulos App
 
-> Generado desde `src` — 10/11/2025, 04:09:01
+> Generado desde `src` — 17/11/2025, 03:01:42
 
 
 ---
@@ -1953,6 +1953,147 @@ main().catch(err=>{console.error('Error:',err.message);process.exit(1);});
 
 ---
 
+### src/dev/print-flows-to-clipboard.js (134 líneas)
+
+```js
+// src/dev/print-flows-to-clipboard.js
+// ----------------------------------------------------
+// Junta todos los archivos de flows, controllers y services,
+// los formatea en Markdown y los copia al portapapeles.
+//
+// Uso: node src/dev/print-flows-to-clipboard.js
+//
+// Requiere Node 18+
+// Linux: necesita tener instalado xclip o xsel para copiar al clipboard.
+
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const ROOT = path.resolve(process.cwd(), 'src');
+const FOLDERS = ['flows', 'controllers', 'services']; // 👈 solo los módulos clave
+
+const EXCLUDES = [
+  'node_modules', 'dist', 'build', '.git',
+  '.cache', 'coverage', 'tmp', 'logs', '.DS_Store'
+];
+
+const TEXT_EXTS = new Set(['js', 'mjs', 'cjs', 'ts', 'tsx', 'json', 'md']);
+
+function looksExcluded(p) {
+  const s = p.replace(/\\/g, '/');
+  return EXCLUDES.some(sub => s.includes(sub));
+}
+function isTextFile(p) {
+  const ext = path.extname(p).slice(1).toLowerCase();
+  return TEXT_EXTS.has(ext);
+}
+async function pathExists(p) {
+  try { await fs.access(p); return true; } catch { return false; }
+}
+async function walk(dir) {
+  const out = [];
+  let entries = [];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch { return out; }
+  for (const e of entries) {
+    const abs = path.join(dir, e.name);
+    if (looksExcluded(abs)) continue;
+    if (e.isDirectory()) out.push(...await walk(abs));
+    else if (e.isFile() && isTextFile(abs)) out.push(abs);
+  }
+  return out.sort();
+}
+function rel(p) { return path.relative(process.cwd(), p).replace(/\\/g, '/'); }
+function lang(p) {
+  const ext = path.extname(p).toLowerCase();
+  const map = { '.js': 'js', '.ts': 'ts', '.mjs': 'js', '.cjs': 'js', '.json': 'json', '.md': 'md' };
+  return map[ext] || '';
+}
+
+async function collectAll() {
+  const dirs = [];
+  for (const f of FOLDERS) {
+    const p = path.join(ROOT, f);
+    if (await pathExists(p)) dirs.push(p);
+  }
+  if (!dirs.length)
+    throw new Error(`No encontré carpetas válidas en ${rel(ROOT)} (buscaba: ${FOLDERS.join(', ')})`);
+
+  let files = [];
+  for (const d of dirs) files.push(...await walk(d));
+  files = Array.from(new Set(files)).sort();
+
+  let totalLines = 0;
+  const chunks = [];
+  chunks.push(`# Dump técnico de flujos KaIA\n`);
+  chunks.push(`> Generado desde \`${rel(ROOT)}\` — ${new Date().toLocaleString('es-AR')}\n`);
+  chunks.push(`> Incluye: ${FOLDERS.join(', ')}\n`);
+
+  for (const f of files) {
+    let raw = '';
+    try { raw = await fs.readFile(f, 'utf-8'); } catch { continue; }
+    const lines = raw.split('\n').length;
+    totalLines += lines;
+    chunks.push(`\n---\n\n### ${rel(f)} (${lines} líneas)\n`);
+    chunks.push('```' + lang(f));
+    chunks.push(raw);
+    chunks.push('```');
+  }
+
+  const md = chunks.join('\n');
+  return { md, filesCount: files.length, totalLines };
+}
+
+function copyToClipboard(text) {
+  return new Promise((resolve, reject) => {
+    const plat = process.platform;
+    let proc;
+    if (plat === 'darwin') proc = spawn('pbcopy');
+    else if (plat === 'win32') proc = spawn('clip');
+    else {
+      try { proc = spawn('xclip', ['-selection', 'clipboard']); }
+      catch {
+        try { proc = spawn('xsel', ['--clipboard', '--input']); }
+        catch { return reject(new Error('Falta pbcopy/clip/xclip/xsel.')); }
+      }
+    }
+    proc.on('error', reject);
+    proc.on('close', c => c === 0 ? resolve() : reject(new Error(`Clipboard exit code ${c}`)));
+    proc.stdin.write(text);
+    proc.stdin.end();
+  });
+}
+
+async function main() {
+  const { md, filesCount, totalLines } = await collectAll();
+  const outDir = path.resolve(process.cwd(), 'tmp');
+  await fs.mkdir(outDir, { recursive: true });
+  const outFile = path.join(outDir, 'flows_dump.md');
+  await fs.writeFile(outFile, md, 'utf-8');
+
+  try {
+    await copyToClipboard(md);
+    console.log(`✅ Copiado al portapapeles. Archivos: ${filesCount} | Líneas: ${totalLines}`);
+    console.log(`📄 Backup: ${rel(outFile)}`);
+  } catch (err) {
+    console.warn('⚠️ No pude copiar al portapapeles:', err.message);
+    console.log(`Guardado en: ${rel(outFile)}\n`);
+    process.stdout.write(md);
+  }
+}
+
+main().catch(err => { console.error('Error:', err.message); process.exit(1); });
+
+```
+
+---
+
 ### src/flows/flow-auth.js (48 líneas)
 
 ```js
@@ -3198,7 +3339,7 @@ export {
 
 ---
 
-### src/services/disambiguationService.js (615 líneas)
+### src/services/disambiguationService.js (630 líneas)
 
 ```js
 // src/services/disambiguationService.js
@@ -3776,11 +3917,22 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   }
 
   const newSignals = { ...(d.signals || {}) };
-  if (type === 'species') newSignals.species = NORM(value);
-  if (type === 'form')    newSignals.form    = NORM(value);
-  if (type === 'weight')  newSignals.weight_hint = normalizeWeightLabel(value);
-  if (type === 'brand')   newSignals.brands  = Array.from(new Set([...(newSignals.brands||[]), value]));
-  if (type === 'pack')    newSignals.packs   = Array.from(new Set([...(newSignals.packs||[]), value]));
+  const mustByAnswer = []; // <— elecciones explícitas pasan a MUST
+
+  if (type === 'species') { newSignals.species = NORM(value); if (newSignals.species) mustByAnswer.push(newSignals.species); }
+  if (type === 'form')    { newSignals.form    = NORM(value); if (newSignals.form)    mustByAnswer.push(newSignals.form); }
+  if (type === 'weight')  {
+    newSignals.weight_hint = normalizeWeightLabel(value);
+    if (newSignals.weight_hint) mustByAnswer.push(newSignals.weight_hint);
+  }
+  if (type === 'brand')   {
+    newSignals.brands  = Array.from(new Set([...(newSignals.brands||[]), value]));
+    mustByAnswer.push(value);
+  }
+  if (type === 'pack')    {
+    newSignals.packs   = Array.from(new Set([...(newSignals.packs||[]), value]));
+    mustByAnswer.push(value);
+  }
   if (type === 'active')  newSignals.actives = Array.from(new Set([...(newSignals.actives||[]), value]));
 
   // limpiar SOLO 'disambig'
@@ -3795,7 +3947,12 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   (newSignals.brands || []).forEach(b => extraShould.push(b));
   (newSignals.packs  || []).forEach(px => extraShould.push(px));
   if (newSignals.weight_hint) extraShould.push(newSignals.weight_hint);
-  const extraMust = (newSignals.actives || []).map(NORM);
+
+  // MUST ahora incluye principios activos + la elección explícita
+  const extraMust = [
+    ...(newSignals.actives || []),
+    ...mustByAnswer
+  ].map(NORM);
 
   const mergedTokens = {
     must:   Array.from(new Set([...(prev?.tokens?.must || []), ...extraMust])),
@@ -3815,7 +3972,6 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
 
   return runDisambiguationOrRecommend({ from, nombre: '', consulta: d.consulta });
 }
-
 ```
 
 ---
@@ -4168,7 +4324,7 @@ Usuario: "inyeccion ivermectina perro hasta 10kg"
 
 ---
 
-### src/services/recommendationService.js (225 líneas)
+### src/services/recommendationService.js (271 líneas)
 
 ```js
 // src/services/recommendationService.js
@@ -4242,6 +4398,51 @@ function logDiversity(tag, arr = []) {
     if (p.marca) brands.add(norm(p.marca));
   }
   console.log(`[RECO][STATS] ${tag} :: candidatos=${arr.length} | marcas=${brands.size} | formas=${forms.size} | packs=${packs.size} | pesos=${weights.size}`);
+}
+
+/* ========= Matching robusto para peso/pack ========= */
+function isWeightToken(t='') { return /\d/.test(t) && /(kg)/i.test(t); }
+function weightTokenRegex(t='') {
+  const s = String(t).toLowerCase().replace(/\s+/g,' ').trim();
+  // rangos tipo "2–4 kg" / "2 - 4 kg" / "2 a 4 kg"
+  const mR = s.match(/(\d+(?:[.,]\d+)?)\s*(?:–|-|a)\s*(\d+(?:[.,]\d+)?)\s*kg/);
+  if (mR) {
+    const a = mR[1].replace(',','[.,]?');
+    const b = mR[2].replace(',','[.,]?');
+    return new RegExp(`\\b(?:${a}\\s*(?:kg)?\\s*(?:a|–|-)\\s*${b}\\s*kg|${a}\\s*(?:a|–|-)\\s*${b}\\s*kg)\\b`);
+  }
+  // hasta / ≤
+  const mLe = s.match(/(?:≤|hasta)\s*(\d+(?:[.,]\d+)?)\s*kg/);
+  if (mLe) return new RegExp(`\\b(?:≤\\s*)?hasta\\s*${mLe[1]}\\s*kg\\b|\\b≤\\s*${mLe[1]}\\s*kg\\b`);
+  // desde / ≥
+  const mGe = s.match(/(?:≥|desde)\s*(\d+(?:[.,]\d+)?)\s*kg/);
+  if (mGe) return new RegExp(`\\b(?:≥\\s*)?${mGe[1]}\\s*kg\\b|\\bdesde\\s*${mGe[1]}\\s*kg\\b`);
+  // número simple "5 kg"
+  const mN = s.match(/(\d+(?:[.,]\d+)?)\s*kg/);
+  if (mN)  return new RegExp(`\\b${mN[1]}\\s*kg\\b`);
+  return null;
+}
+function isPackToken(t='') {
+  const s = String(t).toLowerCase().trim();
+  return /^x?\d{1,2}$/.test(s.replace(/\s+/g,'')) || /pack/.test(s);
+}
+function packTokenRegex(t='') {
+  const n = String(t).toLowerCase().replace(/[^0-9]/g,'');
+  if (!n) return null;
+  return new RegExp(`\\b(?:x\\s*${n}|pack\\s*(?:de\\s*)?${n})\\b`);
+}
+function tokenHit(H, t) {
+  const tt = norm(t);
+  if (!tt) return false;
+  if (isWeightToken(tt)) {
+    const rx = weightTokenRegex(tt);
+    return rx ? rx.test(H) : H.includes(tt);
+  }
+  if (isPackToken(tt)) {
+    const rx = packTokenRegex(tt);
+    return rx ? rx.test(H) : H.includes(tt.replace(/^x/, 'x '));
+  }
+  return H.includes(tt);
 }
 
 /**
@@ -4342,18 +4543,18 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
       let s = 0;
       let hits = 0;
 
-      // MUST fuerte (activos, etc.)
+      // MUST fuerte (activos, elecciones del usuario)
       for (const t of must) {
-        if (t && H.includes(t)) { s += 6; hits++; }
+        if (t && tokenHit(H, t)) { s += 6; hits++; }
       }
       // SHOULD (consulta + signals generales)
       for (const t of tokensForHit) {
-        if (t && H.includes(t)) { s += 2; hits++; }
-        if (t && norm(p.nombre).startsWith(t)) s += 1;
+        if (t && tokenHit(H, t)) { s += 2; hits++; }
+        if (t && norm(p.nombre).startsWith(norm(t))) s += 1;
       }
       // Negativos
       for (const n of negate) {
-        if (n && H.includes(n)) s -= 5;
+        if (n && tokenHit(H, n)) s -= 5;
       }
 
       // Bonos por señales ricas bien mapeadas
@@ -4361,8 +4562,8 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
       if (sig.form && H.includes(norm(sig.form))) s += 3;
       (sig.brands || []).forEach(b => { if (b && H.includes(norm(b))) s += 2; });
       (sig.indications || []).forEach(i => { if (i && H.includes(norm(i))) s += 1; });
-      (sig.packs || []).forEach(px => { if (px && H.includes(norm(px))) s += 2; });
-      if (sig.weight_hint && H.includes(norm(sig.weight_hint))) s += 3;
+      (sig.packs || []).forEach(px => { if (px && tokenHit(H, px)) s += 2; });
+      if (sig.weight_hint && tokenHit(H, sig.weight_hint)) s += 3;
 
       // 💥 Penalización especie contrapuesta (evita “GATOS” cuando piden “PERROS”, y viceversa)
       const hasPerro = /\bperr[oa]s?\b/.test(H);
@@ -4375,7 +4576,8 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
       return { p, s, hits, H };
     })
-    .filter(x => must.length ? must.some(t => t && x.H.includes(t)) : x.hits > 0)
+    // Si hay MUST, al menos uno debe matchear (con regex de peso/pack)
+    .filter(x => must.length ? must.some(t => t && tokenHit(x.H, t)) : x.hits > 0)
     .sort((a, b) => b.s - a.s);
 
   if (!scored.length) {

@@ -1,45 +1,103 @@
 {{!-- src/views/admin/feedback/list.hbs --}}
-<h1 class="mb-3 d-flex align-items-center justify-content-between">
-  <span>Feedback</span>
-</h1>
+<div class="container-fluid py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>
+      <i class="bi bi-chat-left-text"></i> Feedback de Usuarios
+    </h2>
+  </div>
 
-<div class="table-responsive">
-  <table data-auto="dt" class="table table-striped align-middle">
-    <thead>
-      <tr>
-        <th>Fecha</th>
-        <th>CUIT</th>
-        <th>Teléfono</th>
-        <th>Flujo</th>
-        <th>Tipo</th>
-        <th>Comentario</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{#each items}}
-        <tr>
-          <td>{{created_at}}</td>
-          <td>{{cuit}}</td>
-          <td>{{phone}}</td>
-          <td>{{flow_id}}</td>
-          <td>{{satisfecho}}</td>
-          <td style="max-width: 520px; white-space: pre-wrap;">{{comentario}}</td>
-        </tr>
-      {{/each}}
-    </tbody>
-  </table>
+  {{#if success}}
+  <div class="alert alert-success alert-dismissible fade show">
+    {{success}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {{/if}}
+
+  {{#if error}}
+  <div class="alert alert-danger alert-dismissible fade show">
+    {{error}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {{/if}}
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm" id="feedbackTable">
+          <thead class="table-light">
+            <tr>
+              <th style="width: 140px;">Fecha</th>
+              <th style="width: 160px;">Usuario</th>
+              <th style="width: 120px;">CUIT</th>
+              <th style="width: 120px;">Teléfono</th>
+              <th style="width: 100px;">Flujo</th>
+              <th style="width: 100px;">Satisfecho</th>
+              <th>Comentario</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{#each items}}
+            <tr>
+              <td>
+                <small>{{formatDate creado_en}}</small>
+              </td>
+              <td>
+                {{#if Usuario}}
+                <small>{{Usuario.nombre}}</small>
+                {{else}}
+                <small class="text-muted">-</small>
+                {{/if}}
+              </td>
+              <td><small>{{cuit}}</small></td>
+              <td><small>{{phone}}</small></td>
+              <td>
+                <span class="badge bg-secondary">{{flow_id}}</span>
+              </td>
+              <td>
+                {{#if satisfecho}}
+                <span class="badge bg-success">✓ Sí</span>
+                {{else}}
+                <span class="badge bg-danger">✗ No</span>
+                {{/if}}
+              </td>
+              <td>
+                <small style="max-width: 400px; display: block; overflow: hidden; text-overflow: ellipsis;">
+                  {{#if comentario}}
+                  {{comentario}}
+                  {{else}}
+                  <span class="text-muted">Sin comentario</span>
+                  {{/if}}
+                </small>
+              </td>
+            </tr>
+            {{else}}
+            <tr>
+              <td colspan="7" class="text-center text-muted py-4">
+                No hay feedback registrado aún.
+              </td>
+            </tr>
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </div>
 
-{{!-- Alertas flash (si quisieras) --}}
-{{#if success}}
-  <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
-    ✅ {{success}}
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-  </div>
-{{/if}}
-{{#if error}}
-  <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
-    ❌ {{error}}
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-  </div>
-{{/if}}
+<script>
+  if (typeof simpleDatatables !== 'undefined') {
+    const table = document.getElementById('feedbackTable');
+    if (table) {
+      new simpleDatatables.DataTable(table, {
+        perPage: 50,
+        perPageSelect: [25, 50, 100],
+        labels: {
+          placeholder: "Buscar...",
+          perPage: "{select} por página",
+          noRows: "Sin resultados",
+          info: "Mostrando {start} a {end} de {rows} registros"
+        }
+      });
+    }
+  }
+</script>

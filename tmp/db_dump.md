@@ -1,6 +1,6 @@
 # Dump técnico de Base de Datos
 
-> Generado desde `src` — 10/11/2025, 12:16:59
+> Generado desde `src` — 20/11/2025, 11:24:20
 
 
 ---

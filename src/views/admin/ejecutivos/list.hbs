@@ -1,35 +1,101 @@
-{{!-- alertas --}}
-{{> flashAlerts}}
+{{! src/views/admin/ejecutivos/list.hbs }}
+<div class="container-fluid py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>
+      <i class="bi bi-briefcase"></i> Ejecutivos de Cuenta
+    </h2>
+    <a href="/admin/ejecutivos/new" class="btn btn-success btn-sm">
+      <i class="bi bi-plus-circle"></i> Nuevo
+    </a>
+  </div>
 
-<h1 class="mb-3">
-  Ejecutivos
-  <a href="/admin/ejecutivos/new" class="btn btn-success btn-sm">➕ Nuevo</a>
-</h1>
+  {{#if success}}
+  <div class="alert alert-success alert-dismissible fade show">
+    {{success}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {{/if}}
 
-<div class="table-responsive">
-  <table data-auto="dt" class="table table-striped align-middle">
-    <thead>
-      <tr><th>ID</th><th>Nombre</th><th>Teléfono</th><th>Email</th><th>Clientes</th><th></th></tr>
-    </thead>
-    <tbody>
-      {{#each ejecutivos}}
-        <tr>
-          <td>{{id}}</td>
-          <td>{{nombre}}</td>
-          <td>{{phone}}</td>
-          <td>{{email}}</td>
-          <td>{{clientes}}</td>
-          <td>
-            <a href="/admin/ejecutivos/{{id}}/edit" class="btn btn-sm btn-primary">Editar</a>
-            <button class="btn btn-sm btn-danger btn-confirmar-eliminar"
-                    data-id="{{id}}" data-nombre="{{nombre}}"
-                    data-entity="ejecutivo" data-url="/admin/ejecutivos">🗑</button>
-          </td>
-        </tr>
-      {{/each}}
-    </tbody>
-  </table>
+  {{#if error}}
+  <div class="alert alert-danger alert-dismissible fade show">
+    {{error}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {{/if}}
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm">
+          <thead class="table-light">
+            <tr>
+              <th style="width: 60px;">ID</th>
+              <th>Nombre</th>
+              <th style="width: 140px;">Teléfono</th>
+              <th style="width: 200px;">Email</th>
+              <th style="width: 100px;">Clientes</th>
+              <th style="width: 160px;" class="text-end">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{#each ejecutivos}}
+            <tr>
+              <td>{{id}}</td>
+              <td>{{nombre}}</td>
+              <td><small>{{phone}}</small></td>
+              <td><small class="text-muted">{{email}}</small></td>
+              <td>
+                <span class="badge bg-primary">{{clientes}} cliente(s)</span>
+              </td>
+              <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                  <a href="/admin/ejecutivos/{{id}}/clientes" class="btn btn-outline-secondary" title="Ver clientes">
+                    <i class="bi bi-people"></i>
+                  </a>
+                  <a href="/admin/ejecutivos/{{id}}/edit" class="btn btn-outline-primary" title="Editar">
+                    <i class="bi bi-pencil"></i>
+                  </a>
+                  <button class="btn btn-outline-danger btn-confirmar-eliminar" data-id="{{id}}"
+                    data-nombre="{{nombre}}" data-entity="ejecutivo" data-url="/admin/ejecutivos">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {{else}}
+            <tr>
+              <td colspan="6" class="text-center text-muted py-4">
+                No hay ejecutivos registrados. <a href="/admin/ejecutivos/new">Crear uno nuevo</a>
+              </td>
+            </tr>
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </div>
 
-{{> modalConfirm}}
-<script src="/js/datatable-init.js" defer></script>
+{{> modalConfirm }}
+
+<script>
+  document.addEventListener('click', (event) => {
+    const btn = event.target.closest('.btn-confirmar-eliminar');
+    if (!btn) return;
+
+    const id = btn.dataset.id;
+    const nombre = btn.dataset.nombre;
+    const entity = btn.dataset.entity || 'registro';
+    const url = btn.dataset.url;
+
+    const confirmNombre = document.getElementById('confirm-nombre');
+    const confirmEntity = document.getElementById('confirm-entity');
+    const confirmForm = document.getElementById('confirm-form');
+
+    confirmNombre.textContent = nombre;
+    confirmEntity.textContent = entity;
+    confirmForm.action = `${url}/${id}?_method=DELETE`;
+
+    new bootstrap.Modal(document.getElementById('confirmModal')).show();
+  });
+</script>

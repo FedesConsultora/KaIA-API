@@ -6,7 +6,8 @@ import { t } from '../config/texts.js';
 import {
   getReco, setReco, incRecoFail, resetRecoFail,
   setState, getState, setPending, getPending,
-  clearPendingKey // limpiar solo 'disambig'
+  clearPendingKey, // limpiar solo 'disambig'
+  getOrCreateSession
 } from './waSessionService.js';
 import {
   sendWhatsAppText,
@@ -14,6 +15,7 @@ import {
   sendWhatsAppButtons
 } from './whatsappService.js';
 import { Promocion, Producto } from '../models/index.js';
+import { calcularPrecioConDescuento } from './pricingService.js';
 
 import OpenAI from 'openai';
 import { getPromptDisambigExtract } from './promptTemplate.js';
@@ -23,8 +25,8 @@ if (process.env.OPENAI_API_KEY) openai = new OpenAI({ apiKey: process.env.OPENAI
 
 // ===== Config =====
 const FIRST_LIST_THRESHOLD = Number(process.env.RECO_FIRST_LIST_THRESHOLD || 10); // si ≤10: listar directo
-const MAX_HOPS             = Number(process.env.RECO_MAX_HOPS || 2);             // desambiguaciones “normales”
-const SAFE_LIST_MAX        = Number(process.env.RECO_SAFE_LIST_MAX || 10);       // límite duro WABA
+const MAX_HOPS = Number(process.env.RECO_MAX_HOPS || 2);             // desambiguaciones “normales”
+const SAFE_LIST_MAX = Number(process.env.RECO_SAFE_LIST_MAX || 10);       // límite duro WABA
 const GPT_SUMMARY_ON_SMALL = process.env.RECO_GPT_SUMMARY_ON_SMALL !== '0';      // opcional
 
 // ====== Utils de normalización / parse ======
@@ -50,9 +52,9 @@ function normalizeNumber(n) {
 function normalizeWeightLabel(text = '') {
   const t = String(text || '').toLowerCase().replace(',', '.').trim();
   let m = t.match(RX.range); if (m) return `${normalizeNumber(m[1])}–${normalizeNumber(m[2])} kg`;
-  m = t.match(RX.hasta);     if (m) return `≤${normalizeNumber(m[1])} kg`;
-  m = t.match(RX.desde);     if (m) return `≥${normalizeNumber(m[2])} kg`;
-  m = t.match(RX.kg);        if (m) return `${normalizeNumber(m[1])} kg`;
+  m = t.match(RX.hasta); if (m) return `≤${normalizeNumber(m[1])} kg`;
+  m = t.match(RX.desde); if (m) return `≥${normalizeNumber(m[2])} kg`;
+  m = t.match(RX.kg); if (m) return `${normalizeNumber(m[1])} kg`;
   return null;
 }
 function extractPackLabel(text = '') {
@@ -62,13 +64,13 @@ function extractPackLabel(text = '') {
 function looksLikePipeta(query = '', tokens = {}) {
   const q = NORM(query);
   if (RX.forma_pipeta.test(q)) return true;
-  const s = new Set([...(tokens.must||[]), ...(tokens.should||[])].map(NORM));
+  const s = new Set([...(tokens.must || []), ...(tokens.should || [])].map(NORM));
   for (const w of s) if (/pipet|spot|topico/.test(w)) return true;
   return false;
 }
 function hardSpeciesInQuery(query = '') {
   const q = NORM(query);
-  if (RX.especie_gato.test(q))  return 'gato';
+  if (RX.especie_gato.test(q)) return 'gato';
   if (RX.especie_perro.test(q)) return 'perro';
   return null;
 }
@@ -86,7 +88,7 @@ async function extraerSenalesRicas(query) {
       model: MODEL,
       messages: [
         { role: 'system', content: getPromptDisambigExtract() },
-        { role: 'user',   content: query }
+        { role: 'user', content: query }
       ],
       temperature: 0
     });
@@ -117,10 +119,10 @@ async function extraerSenalesRicas(query) {
 function baseKey(p) {
   let t = `${NORM(p.marca)} ${NORM(p.nombre)} ${NORM(p.presentacion)}`;
   t = t.replace(RX.range, ' ')
-       .replace(RX.hasta, ' ')
-       .replace(RX.desde, ' ')
-       .replace(RX.kg, ' ')
-       .replace(/\b\d+(?:[.,]\d+)?\s*(ml|cc)\b/gi, ' ');
+    .replace(RX.hasta, ' ')
+    .replace(RX.desde, ' ')
+    .replace(RX.kg, ' ')
+    .replace(/\b\d+(?:[.,]\d+)?\s*(ml|cc)\b/gi, ' ');
   return t.replace(/\s+/g, ' ').trim();
 }
 
@@ -134,8 +136,8 @@ function analyzeVariantDimensions(productos = []) {
     const forma = (() => {
       const txt = NORM(`${p.nombre} ${p.presentacion} ${p.rubro} ${p.familia}`);
       if (RX.forma_pipeta.test(txt)) return 'pipeta';
-      if (RX.forma_comp.test(txt))   return 'comprimido';
-      if (RX.forma_iny.test(txt))    return 'inyectable';
+      if (RX.forma_comp.test(txt)) return 'comprimido';
+      if (RX.forma_iny.test(txt)) return 'inyectable';
       return null;
     })();
     if (!groups.has(key)) groups.set(key, []);
@@ -145,8 +147,8 @@ function analyzeVariantDimensions(productos = []) {
   const sets = { peso: new Set(), pack: new Set(), marca: new Set(), forma: new Set() };
   for (const variants of groups.values()) {
     variants.forEach(v => {
-      if (v.peso)  sets.peso.add(v.peso);
-      if (v.pack)  sets.pack.add(v.pack);
+      if (v.peso) sets.peso.add(v.peso);
+      if (v.pack) sets.pack.add(v.pack);
       if (v.marca) sets.marca.add(v.marca);
       if (v.forma) sets.forma.add(v.forma);
     });
@@ -161,14 +163,14 @@ function analyzeVariantDimensions(productos = []) {
 function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] }) {
   const explicitSpecies = hardSpeciesInQuery(consulta);
   const especie = signals.species || explicitSpecies || null;
-  const forma   = signals.form || null;
+  const forma = signals.form || null;
   const isPipeta = looksLikePipeta(consulta, tokens) || forma === 'pipeta';
 
   const { needs, sets } = analyzeVariantDimensions(productos);
   const already = new Set(asked || []);
 
-  const txt = NORM(productos.map(p => `${p.nombre} ${p.presentacion} ${p.familia} ${p.rubro} ${p.observaciones||''}`).join(' | '));
-  const hayGato  = RX.especie_gato.test(txt);
+  const txt = NORM(productos.map(p => `${p.nombre} ${p.presentacion} ${p.familia} ${p.rubro} ${p.observaciones || ''}`).join(' | '));
+  const hayGato = RX.especie_gato.test(txt);
   const hayPerro = RX.especie_perro.test(txt);
 
   if (!especie && !already.has('species')) {
@@ -200,13 +202,13 @@ function pickFirstQuestion({ signals, tokens, productos, consulta, asked = [] })
   }
 
   const diversity = [
-    { key: 'peso',  size: sets.peso.size,  type: 'weight', title: t('desambig_peso_header'),  body: (especieBody === 'gato') ? t('desambig_peso_body_gato') : t('desambig_peso_body_perro') },
-    { key: 'marca', size: sets.marca.size, type: 'brand',  title: t('desambig_brand_header'), body: t('desambig_brand_body') },
-    { key: 'forma', size: sets.forma.size, type: 'form',   title: t('desambig_form_header'),  body: t('desambig_form_body') },
-    { key: 'pack',  size: sets.pack.size,  type: 'pack',   title: t('desambig_pack_header'),  body: t('desambig_pack_body') },
+    { key: 'peso', size: sets.peso.size, type: 'weight', title: t('desambig_peso_header'), body: (especieBody === 'gato') ? t('desambig_peso_body_gato') : t('desambig_peso_body_perro') },
+    { key: 'marca', size: sets.marca.size, type: 'brand', title: t('desambig_brand_header'), body: t('desambig_brand_body') },
+    { key: 'forma', size: sets.forma.size, type: 'form', title: t('desambig_form_header'), body: t('desambig_form_body') },
+    { key: 'pack', size: sets.pack.size, type: 'pack', title: t('desambig_pack_header'), body: t('desambig_pack_body') },
   ]
-  .filter(d => !already.has(d.type))
-  .sort((a,b) => b.size - a.size);
+    .filter(d => !already.has(d.type))
+    .sort((a, b) => b.size - a.size);
 
   const best = diversity.find(d => d.size >= 2);
   if (best) return { type: best.type, title: best.title, body: best.body };
@@ -224,25 +226,35 @@ function money(val) {
   const n = Number(val);
   return Number.isFinite(n) ? `$${n.toFixed(0)}` : '(consultar)';
 }
-function formatProductoDetalle(p) {
+async function formatProductoDetalle(p, usuarioId = null) {
   const j = typeof p.toJSON === 'function' ? p.toJSON() : p;
 
   const nombre = pick(j, ['nombre']) || '—';
-  const marca  = pick(j, ['marca']) || '—';
+  const marca = pick(j, ['marca']) || '—';
   const presentacion = pick(j, ['presentacion']) || '';
-  const rubro   = pick(j, ['rubro']);
+  const rubro = pick(j, ['rubro']);
   const familia = pick(j, ['familia']);
   const especie = pick(j, ['especie']);
-  const forma   = pick(j, ['forma', 'presentacion_forma']);
+  const forma = pick(j, ['forma', 'presentacion_forma']);
   const contenido = pick(j, ['contenido_neto', 'volumen', 'peso']);
   const unidad = pick(j, ['unidad', 'unidad_medida']);
-  const sku    = pick(j, ['sku', 'codigo_sku']);
+  const sku = pick(j, ['sku', 'codigo_sku']);
   const codigo = pick(j, ['codigo', 'codigo_interno']);
-  const ean    = pick(j, ['codigo_barras', 'ean']);
-  const stock  = pick(j, ['cantidad', 'stock']);
-  const precio = pick(j, ['precio']);
+  const ean = pick(j, ['codigo_barras', 'ean']);
 
-  const obs    = pick(j, ['observaciones', 'descripcion', 'notas']);
+  // Calcular precio con descuento si el usuario tiene condiciones
+  let precio = j.precio;
+  if (usuarioId && precio) {
+    try {
+      const resultado = await calcularPrecioConDescuento({ producto: j, usuarioId });
+      precio = resultado.precioFinal;
+    } catch (e) {
+      console.warn('Error calculando precio con descuento:', e);
+      precio = j.precio;
+    }
+  }
+
+  const obs = pick(j, ['observaciones', 'descripcion', 'notas']);
 
   const promo = (j.Promocions?.[0]) ? `Sí: ${j.Promocions[0].nombre}` : 'No';
 
@@ -258,8 +270,7 @@ function formatProductoDetalle(p) {
     sku ? `SKU: ${sku}` : null,
     codigo ? `Código: ${codigo}` : null,
     ean ? `EAN: ${ean}` : null,
-    (precio != null) ? `Precio estimado: ${money(precio)}` : `Precio estimado: (consultar)`,
-    stock ? `Stock: ${stock}` : null,
+    (precio != null) ? `Precio: ${money(precio)}` : `Precio: (consultar)`,
     `¿Promoción?: ${promo}`,
     obs ? `\n📝 *Observaciones*\n${obs}` : null
   ].filter(Boolean);
@@ -280,17 +291,34 @@ export async function openProductDetail(from, productId) {
     await sendWhatsAppText(from, t('producto_open_error'));
     return false;
   }
-  const detail = formatProductoDetalle(p);
+
+  // Obtener usuario para calcular precio con descuento
+  const session = await getOrCreateSession(from);
+  const usuarioId = session?.Usuario?.id || null;
+
+  const detail = await formatProductoDetalle(p, usuarioId);
   await sendWhatsAppText(from, t('producto_ficha_header'));
   await sendWhatsAppText(from, detail);
 
   try {
+    // Calcular precio con descuento para GPT también
+    let precioFinal = p.precio ? Number(p.precio) : null;
+    if (usuarioId && precioFinal) {
+      try {
+        const resultado = await calcularPrecioConDescuento({ producto: p, usuarioId });
+        precioFinal = resultado.precioFinal;
+      } catch (e) {
+        console.warn('Error calculando precio para GPT:', e);
+        precioFinal = p.precio ? Number(p.precio) : null;
+      }
+    }
+
     const g = {
       id: p.id,
       nombre: p.nombre,
       marca: p.marca || '',
       presentacion: p.presentacion || '',
-      precio: p.precio ? Number(p.precio) : null,
+      precio: precioFinal,
       rubro: p.rubro || '',
       familia: p.familia || '',
       promo: p.Promocions?.[0]
@@ -301,7 +329,7 @@ export async function openProductDetail(from, productId) {
     if (texto && texto.trim()) {
       await sendWhatsAppText(from, texto.trim());
     }
-  } catch (_) {}
+  } catch (_) { }
 
   return true;
 }
@@ -316,7 +344,7 @@ async function sendGptQuickReply(from, consulta, productosValidos = []) {
       similares: []
     });
     if (texto && texto.trim()) await sendWhatsAppText(from, texto.trim());
-  } catch (_) {}
+  } catch (_) { }
 }
 
 // ===== Lista de productos (capada a 10 filas) =====
@@ -344,7 +372,7 @@ function scrubSpuriousSpeciesTokens(mergedTokens, consulta, signals) {
   const locked = signals?.species || null;
   if (explicit || locked) return mergedTokens;
 
-  const blacklist = new Set(['gato','gatos','felino','felinos','perro','perros','canino','caninos']);
+  const blacklist = new Set(['gato', 'gatos', 'felino', 'felinos', 'perro', 'perros', 'canino', 'caninos']);
   const should = (mergedTokens.should || []).filter(x => !blacklist.has(NORM(x)));
   return { ...mergedTokens, should };
 }
@@ -356,7 +384,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
   // 1) Tokens desde texto + merge con prev
   const tokensNew = await extraerTerminosBusqueda(consulta);
   let mergedTokens = {
-    must:   Array.from(new Set([...(prev?.tokens?.must || []), ...(tokensNew?.must || [])])),
+    must: Array.from(new Set([...(prev?.tokens?.must || []), ...(tokensNew?.must || [])])),
     should: Array.from(new Set([...(prev?.tokens?.should || []), ...(tokensNew?.should || [])])),
     negate: Array.from(new Set([...(prev?.tokens?.negate || []), ...(tokensNew?.negate || [])]))
   };
@@ -366,12 +394,12 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
   const signals = {
     species: prev.signals?.species ?? signalsNew.species ?? null,
     form: prev.signals?.form ?? signalsNew.form ?? null,
-    brands: Array.from(new Set([...(prev.signals?.brands||[]), ...(signalsNew.brands||[])])),
-    actives: Array.from(new Set([...(prev.signals?.actives||[]), ...(signalsNew.actives||[])])),
-    indications: Array.from(new Set([...(prev.signals?.indications||[]), ...(signalsNew.indications||[])])),
+    brands: Array.from(new Set([...(prev.signals?.brands || []), ...(signalsNew.brands || [])])),
+    actives: Array.from(new Set([...(prev.signals?.actives || []), ...(signalsNew.actives || [])])),
+    indications: Array.from(new Set([...(prev.signals?.indications || []), ...(signalsNew.indications || [])])),
     weight_hint: prev.signals?.weight_hint ?? signalsNew.weight_hint ?? null,
-    packs: Array.from(new Set([...(prev.signals?.packs||[]), ...(signalsNew.packs||[])])),
-    negatives: Array.from(new Set([...(prev.signals?.negatives||[]), ...(signalsNew.negatives||[])])),
+    packs: Array.from(new Set([...(prev.signals?.packs || []), ...(signalsNew.packs || [])])),
+    negatives: Array.from(new Set([...(prev.signals?.negatives || []), ...(signalsNew.negatives || [])])),
   };
 
   // 3) No asumir especie si no fue explícita ni está lockeada
@@ -380,8 +408,12 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
   // Guardamos contexto actualizado
   await setReco(from, { tokens: mergedTokens, lastQuery: consulta, signals });
 
-  // 4) Buscar candidatos
-  const { validos = [], similares = [] } = await recomendarDesdeBBDD(consulta, { gpt: mergedTokens, signals });
+  // Obtener usuario para calcular precios con descuento
+  const session = await getOrCreateSession(from);
+  const usuarioId = session?.Usuario?.id || null;
+
+  // 4) Buscar candidatos (con usuarioId para precios)
+  const { validos = [], similares = [] } = await recomendarDesdeBBDD(consulta, { gpt: mergedTokens, signals, usuarioId });
   const candidatos = [...validos, ...similares];
 
   console.log(`[RECO][ITER] query="${consulta}" -> validos=${validos.length} similares=${similares.length} total=${candidatos.length}`);
@@ -392,7 +424,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
       await sendWhatsAppText(from, t('no_match'));
       await sendWhatsAppButtons(from, t('reco_pedir_especie'), [
         { id: 'perro', title: t('btn_perro') },
-        { id: 'gato',  title: t('btn_gato') },
+        { id: 'gato', title: t('btn_gato') },
         { id: 'volver', title: t('btn_volver') }
       ]);
       return true;
@@ -454,9 +486,9 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
       for (const variants of groups.values()) {
         for (const v of variants) {
           if (question.type === 'weight' && v.peso) opts.add(v.peso);
-          if (question.type === 'pack'  && v.pack) opts.add(v.pack);
+          if (question.type === 'pack' && v.pack) opts.add(v.pack);
           if (question.type === 'brand' && v.marca) opts.add(v.marca);
-          if (question.type === 'form'  && v.forma) opts.add(v.forma);
+          if (question.type === 'form' && v.forma) opts.add(v.forma);
         }
       }
       if (question.type === 'species') { opts.add('gato'); opts.add('perro'); }
@@ -479,7 +511,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
           opciones: rows.map(r => r.id)
         }
       });
-      await setReco(from, { asked: Array.from(new Set([...(asked||[]), question.type])) });
+      await setReco(from, { asked: Array.from(new Set([...(asked || []), question.type])) });
 
       await sendWhatsAppList(
         from,
@@ -505,9 +537,9 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
     for (const variants of groups.values()) {
       for (const v of variants) {
         if (question.type === 'weight' && v.peso) opts.add(v.peso);
-        if (question.type === 'pack'  && v.pack) opts.add(v.pack);
+        if (question.type === 'pack' && v.pack) opts.add(v.pack);
         if (question.type === 'brand' && v.marca) opts.add(v.marca);
-        if (question.type === 'form'  && v.forma) opts.add(v.forma);
+        if (question.type === 'form' && v.forma) opts.add(v.forma);
       }
     }
     if (question.type === 'species') { opts.add('gato'); opts.add('perro'); }
@@ -530,7 +562,7 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
         opciones: rows.map(r => r.id)
       }
     });
-    await setReco(from, { asked: Array.from(new Set([...(asked||[]), question.type])), hops: hops + 1 });
+    await setReco(from, { asked: Array.from(new Set([...(asked || []), question.type])), hops: hops + 1 });
 
     await sendWhatsAppList(
       from,
@@ -576,20 +608,20 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   const mustByAnswer = []; // <— elecciones explícitas pasan a MUST
 
   if (type === 'species') { newSignals.species = NORM(value); if (newSignals.species) mustByAnswer.push(newSignals.species); }
-  if (type === 'form')    { newSignals.form    = NORM(value); if (newSignals.form)    mustByAnswer.push(newSignals.form); }
-  if (type === 'weight')  {
+  if (type === 'form') { newSignals.form = NORM(value); if (newSignals.form) mustByAnswer.push(newSignals.form); }
+  if (type === 'weight') {
     newSignals.weight_hint = normalizeWeightLabel(value);
     if (newSignals.weight_hint) mustByAnswer.push(newSignals.weight_hint);
   }
-  if (type === 'brand')   {
-    newSignals.brands  = Array.from(new Set([...(newSignals.brands||[]), value]));
+  if (type === 'brand') {
+    newSignals.brands = Array.from(new Set([...(newSignals.brands || []), value]));
     mustByAnswer.push(value);
   }
-  if (type === 'pack')    {
-    newSignals.packs   = Array.from(new Set([...(newSignals.packs||[]), value]));
+  if (type === 'pack') {
+    newSignals.packs = Array.from(new Set([...(newSignals.packs || []), value]));
     mustByAnswer.push(value);
   }
-  if (type === 'active')  newSignals.actives = Array.from(new Set([...(newSignals.actives||[]), value]));
+  if (type === 'active') newSignals.actives = Array.from(new Set([...(newSignals.actives || []), value]));
 
   // limpiar SOLO 'disambig'
   await clearPendingKey(from, 'disambig');
@@ -599,9 +631,9 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   const prev = await getReco(from);
   const extraShould = [];
   if (newSignals.species) extraShould.push(newSignals.species);
-  if (newSignals.form)    extraShould.push(newSignals.form);
+  if (newSignals.form) extraShould.push(newSignals.form);
   (newSignals.brands || []).forEach(b => extraShould.push(b));
-  (newSignals.packs  || []).forEach(px => extraShould.push(px));
+  (newSignals.packs || []).forEach(px => extraShould.push(px));
   if (newSignals.weight_hint) extraShould.push(newSignals.weight_hint);
 
   // MUST ahora incluye principios activos + la elección explícita
@@ -611,7 +643,7 @@ export async function handleDisambigAnswer(from, answerIdOrText) {
   ].map(NORM);
 
   const mergedTokens = {
-    must:   Array.from(new Set([...(prev?.tokens?.must || []), ...extraMust])),
+    must: Array.from(new Set([...(prev?.tokens?.must || []), ...extraMust])),
     should: Array.from(new Set([...(prev?.tokens?.should || []), ...extraShould])),
     negate: Array.from(new Set([...(prev?.tokens?.negate || [])]))
   };
