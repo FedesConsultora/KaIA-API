@@ -5,7 +5,7 @@ export async function getVetByCuit(cuit) {
   if (!cuit) return null;
   return Usuario.findOne({
     where: { cuit: String(cuit) },
-    include: [{ model: EjecutivoCuenta }],
+    include: [{ model: EjecutivoCuenta, as: 'EjecutivoCuenta' }],
   });
 }
 
@@ -31,7 +31,7 @@ export async function updateVetEmail(userId, email) {
 export function isValidCuitNumber(cuit = '') {
   const d = String(cuit).replace(/\D/g, '');
   if (!/^\d{11}$/.test(d)) return false;
-  const mult = [5,4,3,2,7,6,5,4,3,2];
+  const mult = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
   const arr = d.split('').map(Number);
   const dv = arr[10];
   const sum = mult.reduce((acc, m, i) => acc + m * arr[i], 0);
