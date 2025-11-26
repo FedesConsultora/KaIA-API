@@ -459,7 +459,6 @@ export async function purgeAsignaciones(req, res) {
 
         await UsuarioCondicionComercial.destroy({
             where: {},
-            truncate: true,
             transaction
         });
 
@@ -488,21 +487,18 @@ export async function purgeAll(req, res) {
         // 1. Eliminar asignaciones
         await UsuarioCondicionComercial.destroy({
             where: {},
-            truncate: true,
             transaction
         });
 
         // 2. Eliminar reglas
         await CondicionComercialRegla.destroy({
             where: {},
-            truncate: true,
             transaction
         });
 
         // 3. Eliminar condiciones
         await CondicionComercial.destroy({
             where: {},
-            truncate: true,
             transaction
         });
 
