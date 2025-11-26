@@ -134,16 +134,25 @@ export const create = async (req, res) => {
 };
 
 export const update = async (req, res) => {
-  const { nombre, phone, cuit, email, role, password, ejecutivoId, condicionesIds } = req.body;
-  const data = {
-    nombre, phone, cuit, email, role,
-    ejecutivoId: ejecutivoId || null
-  };
+  try {
+    const { nombre, phone, cuit, email, role, password, ejecutivoId, condicionesIds } = req.body;
+    const data = {
+      nombre,
+      phone: phone || null,
+      cuit: cuit || null,
+      email: email || null,
+      role,
+      ejecutivoId: ejecutivoId || null
+    };
 
-  if (role === 'admin' && password) data.password = await bcrypt.hash(password, 10);
+    if (role === 'admin' && password) data.password = await bcrypt.hash(password, 10);
 
-  const usuario = await Usuario.findByPk(req.params.id);
-  if (usuario) {
+    const usuario = await Usuario.findByPk(req.params.id);
+    if (!usuario) {
+      req.flash('error', 'Usuario no encontrado');
+      return res.redirect('/admin/usuarios');
+    }
+
     await usuario.update(data);
 
     // Eliminar asignaciones actuales
@@ -163,10 +172,33 @@ export const update = async (req, res) => {
 
       await UsuarioCondicionComercial.bulkCreate(asignaciones);
     }
-  }
 
-  req.flash('success', `Usuario ${nombre || phone} actualizado con éxito`);
-  res.redirect('/admin/usuarios');
+    req.flash('success', `Usuario ${nombre || phone} actualizado con éxito`);
+    res.redirect('/admin/usuarios');
+
+  } catch (err) {
+    console.error('Error actualizando usuario:', err);
+
+    // Manejo especial para errores de campos únicos
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      const campo = err.errors[0]?.path;
+      const valor = err.errors[0]?.value;
+
+      if (campo === 'email') {
+        req.flash('error', `⚠️ El email "${valor}" ya está en uso por otro usuario. Por favor usa otro email o déjalo vacío.`);
+      } else if (campo === 'phone') {
+        req.flash('error', `⚠️ El teléfono "${valor}" ya está en uso por otro usuario. Por favor usa otro teléfono o déjalo vacío.`);
+      } else if (campo === 'cuit') {
+        req.flash('error', `⚠️ El CUIT "${valor}" ya está en uso por otro usuario.`);
+      } else {
+        req.flash('error', '⚠️ Ya existe un usuario con esos datos en el sistema.');
+      }
+    } else {
+      req.flash('error', `Error al actualizar usuario: ${err.message}`);
+    }
+
+    return res.redirect(`/admin/usuarios/${req.params.id}/edit`);
+  }
 };
 
 export const remove = async (req, res) => {

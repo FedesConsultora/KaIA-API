@@ -8,7 +8,8 @@
 
   <div class="card shadow-sm">
     <div class="card-body">
-      <form action="/admin/usuarios{{#if isEdit}}/{{usuario.id}}?_method=PUT{{/if}}" method="POST" class="row g-3">
+      <form action="/admin/usuarios{{#if isEdit}}/{{usuario.id}}?_method=PUT{{/if}}" method="POST" class="row g-3"
+        autocomplete="off">
 
         <h5 class="mb-3 text-primary"><i class="bi bi-info-circle"></i> Datos Personales</h5>
 
@@ -19,18 +20,22 @@
 
         <div class="col-md-6">
           <label class="form-label">Teléfono (WhatsApp)</label>
-          <input name="phone" class="form-control" value="{{usuario.phone}}">
+          <input name="phone" class="form-control" value="{{usuario.phone}}" autocomplete="off" autocorrect="off"
+            autocapitalize="off" spellcheck="false">
           <div class="form-text">Formato internacional sin +, ej: 5491122334455</div>
         </div>
 
         <div class="col-md-6">
           <label class="form-label">CUIT</label>
-          <input name="cuit" class="form-control" value="{{usuario.cuit}}">
+          <input name="cuit" class="form-control" value="{{usuario.cuit}}" autocomplete="off" autocorrect="off"
+            autocapitalize="off" spellcheck="false">
         </div>
 
         <div class="col-md-6">
           <label class="form-label">Email</label>
-          <input name="email" type="email" class="form-control" value="{{usuario.email}}" autocomplete="off">
+          <input name="email" type="text" class="form-control" value="{{usuario.email}}" autocomplete="new-password"
+            autocorrect="off" autocapitalize="off" spellcheck="false">
+          <small class="text-muted">Opcional. Deja vacío si no tiene.</small>
         </div>
 
         <hr class="my-4">
