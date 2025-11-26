@@ -18,8 +18,8 @@
         </div>
 
         <div class="col-md-6">
-          <label class="form-label">Teléfono (WhatsApp) <span class="text-danger">*</span></label>
-          <input name="phone" class="form-control" value="{{usuario.phone}}" required>
+          <label class="form-label">Teléfono (WhatsApp)</label>
+          <input name="phone" class="form-control" value="{{usuario.phone}}">
           <div class="form-text">Formato internacional sin +, ej: 5491122334455</div>
         </div>
 
@@ -30,7 +30,7 @@
 
         <div class="col-md-6">
           <label class="form-label">Email</label>
-          <input name="email" type="email" class="form-control" value="{{usuario.email}}">
+          <input name="email" type="email" class="form-control" value="{{usuario.email}}" autocomplete="off">
         </div>
 
         <hr class="my-4">
