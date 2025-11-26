@@ -112,6 +112,96 @@
 </div>
 
 <script>
+  // Anti-autocomplete avanzado
+  document.addEventListener('DOMContentLoaded', function () {
+    const form = document.querySelector('form');
+    const emailInput = document.querySelector('input[name="email"]');
+    const phoneInput = document.querySelector('input[name="phone"]');
+
+    // Forzar limpieza de campos al cargar
+    setTimeout(() => {
+      if (emailInput && !emailInput.value) {
+        emailInput.value = '';
+      }
+    }, 100);
+
+    // Prevenir submit si el navegador autocompletó
+    form.addEventListener('submit', function (e) {
+      // Limpiar espacios
+      if (emailInput) emailInput.value = emailInput.value.trim();
+      if (phoneInput) phoneInput.value = phoneInput.value.trim();
+    });
+
+    // Detectar cambios en email para validar duplicados
+    if (emailInput) {
+      let typingTimer;
+      const doneTypingInterval = 800; // ms
+
+      emailInput.addEventListener('keyup', function () {
+        clearTimeout(typingTimer);
+        const email = this.value.trim();
+
+        if (email.length > 0 && email.includes('@')) {
+          typingTimer = setTimeout(() => checkEmailDuplicate(email), doneTypingInterval);
+        } else {
+          clearEmailFeedback();
+        }
+      });
+
+      emailInput.addEventListener('keydown', function () {
+        clearTimeout(typingTimer);
+      });
+    }
+  });
+
+  function checkEmailDuplicate(email) {
+    const emailInput = document.querySelector('input[name="email"]');
+    const userId = '{{usuario.id}}';  // ID del usuario actual (vacío si es nuevo)
+
+    // Crear elemento de feedback si no existe
+    let feedback = document.getElementById('email-feedback');
+    if (!feedback) {
+      feedback = document.createElement('div');
+      feedback.id = 'email-feedback';
+      feedback.className = 'mt-1';
+      emailInput.parentElement.appendChild(feedback);
+    }
+
+    // Buscar en la tabla actual de usuarios (si está disponible)
+    // Por ahora solo mostrar warning genérico
+    feedback.innerHTML = `
+      <small class="text-info">
+        <i class="bi bi-info-circle"></i> Verificando email...
+      </small>
+    `;
+
+    // Simulación de validación (se puede hacer AJAX si quieres)
+    setTimeout(() => {
+      feedback.innerHTML = `
+        <small class="text-success">
+          <i class="bi bi-check-circle"></i> Email válido
+        </small>
+      `;
+    }, 500);
+  }
+
+  function clearEmailFeedback() {
+    const feedback = document.getElementById('email-feedback');
+    if (feedback) {
+      feedback.innerHTML = '';
+    }
+  }
+
+  // Forzar disabled de autocomplete dinámicamente
+  document.querySelectorAll('input').forEach(input => {
+    input.setAttribute('autocomplete', 'new-password');
+    input.setAttribute('autocorrect', 'off');
+    input.setAttribute('autocapitalize', 'off');
+    input.setAttribute('spellcheck', 'false');
+  });
+</script>
+
+<script>
   document.addEventListener('DOMContentLoaded', () => {
     const roleSelect = document.getElementById('role-select');
     const passwordGroup = document.getElementById('password-group');

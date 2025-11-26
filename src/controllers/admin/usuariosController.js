@@ -130,6 +130,7 @@ export const create = async (req, res) => {
     await UsuarioCondicionComercial.bulkCreate(asignaciones);
   }
 
+  req.flash('success', `✅ Usuario #${nuevoUsuario.id} "${nombre || phone}" creado exitosamente`);
   res.redirect('/admin/usuarios');
 };
 
@@ -173,7 +174,7 @@ export const update = async (req, res) => {
       await UsuarioCondicionComercial.bulkCreate(asignaciones);
     }
 
-    req.flash('success', `Usuario ${nombre || phone} actualizado con éxito`);
+    req.flash('success', `✅ Usuario #${usuario.id} "${nombre || phone}" actualizado exitosamente`);
     res.redirect('/admin/usuarios');
 
   } catch (err) {

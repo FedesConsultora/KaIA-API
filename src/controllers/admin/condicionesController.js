@@ -81,7 +81,7 @@ export async function create(req, res) {
             vigencia_hasta: vigencia_hasta || null
         });
 
-        req.flash('success', `Condición ${codigo} creada exitosamente`);
+        req.flash('success', `✅ Condición ${codigo} creada exitosamente`);
         res.redirect(`/admin/condiciones/${condicion.id}/edit`);
     } catch (err) {
         console.error('Error creando condición:', err);
@@ -139,7 +139,7 @@ export async function update(req, res) {
             vigencia_hasta: vigencia_hasta || null
         });
 
-        req.flash('success', 'Condición actualizada exitosamente');
+        req.flash('success', `✅ Condición ${condicion.codigo} actualizada exitosamente`);
         res.redirect(`/admin/condiciones/${condicion.id}/edit`);
     } catch (err) {
         console.error('Error actualizando condición:', err);
@@ -160,7 +160,7 @@ export async function remove(req, res) {
 
         await condicion.destroy();
 
-        req.flash('success', `Condición ${condicion.codigo} eliminada`);
+        req.flash('success', `✅ Condición ${condicion.codigo} eliminada exitosamente`);
         res.redirect('/admin/condiciones');
     } catch (err) {
         console.error('Error eliminando condición:', err);
