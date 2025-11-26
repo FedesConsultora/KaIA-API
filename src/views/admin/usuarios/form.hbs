@@ -67,17 +67,32 @@
           <div class="form-text">Ejecutivo responsable de este cliente.</div>
         </div>
 
-        <div class="col-md-6">
-          <label class="form-label">Condición Comercial</label>
-          <select name="condicionId" class="form-select">
-            <option value="">-- Sin condición especial --</option>
-            {{#each condiciones}}
-            <option value="{{this.id}}" {{#if (includes ../condicionesAsignadas this.id)}}selected{{/if}}>
-              {{this.codigo}} - {{this.nombre}}
-            </option>
-            {{/each}}
-          </select>
-          <div class="form-text">Define los descuentos automáticos aplicables.</div>
+        <div class="col-md-12">
+          <label class="form-label">Condiciones Comerciales</label>
+          <div class="card">
+            <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+              {{#if condiciones.length}}
+              <div class="form-text mb-2">
+                <i class="bi bi-info-circle"></i> Selecciona una o más condiciones para este cliente.
+                Se aplicará el mejor descuento de todas las condiciones asignadas.
+              </div>
+              {{#each condiciones}}
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="condicionesIds[]" value="{{this.id}}"
+                  id="condicion{{this.id}}" {{#if (includes ../condicionesAsignadas this.id)}}checked{{/if}}>
+                <label class="form-check-label" for="condicion{{this.id}}">
+                  <strong>{{this.codigo}}</strong> - {{this.nombre}}
+                  {{#if this.descripcion}}
+                  <br><small class="text-muted">{{this.descripcion}}</small>
+                  {{/if}}
+                </label>
+              </div>
+              {{/each}}
+              {{else}}
+              <p class="text-muted mb-0">No hay condiciones comerciales disponibles.</p>
+              {{/if}}
+            </div>
+          </div>
         </div>
 
         <div class="col-12 mt-4 d-flex gap-2 justify-content-end">

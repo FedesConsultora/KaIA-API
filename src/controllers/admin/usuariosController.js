@@ -106,7 +106,7 @@ export const formEdit = async (req, res) => {
 
 /* ───────── CRUD ───────── */
 export const create = async (req, res) => {
-  const { nombre, phone, cuit, email, role, password, ejecutivoId, condicionId } = req.body;
+  const { nombre, phone, cuit, email, role, password, ejecutivoId, condicionesIds } = req.body;
   const data = {
     nombre, phone, cuit, email, role,
     ejecutivoId: ejecutivoId || null
@@ -116,18 +116,25 @@ export const create = async (req, res) => {
 
   const nuevoUsuario = await Usuario.create(data);
 
-  // Asignar condición comercial si se seleccionó
-  if (condicionId) {
-    await nuevoUsuario.setCondicionComercials([condicionId], {
-      through: { vigencia_desde: new Date(), es_principal: true }
-    });
+  // Asignar condiciones comerciales (puede ser un array o vacío)
+  if (condicionesIds && Array.isArray(condicionesIds) && condicionesIds.length > 0) {
+    // Crear asignaciones con vigencia_desde
+    const asignaciones = condicionesIds.map(condicionId => ({
+      usuarioId: nuevoUsuario.id,
+      condicionId: parseInt(condicionId),
+      vigencia_desde: new Date(),
+      vigente_hasta: null,
+      es_principal: true
+    }));
+
+    await UsuarioCondicionComercial.bulkCreate(asignaciones);
   }
 
   res.redirect('/admin/usuarios');
 };
 
 export const update = async (req, res) => {
-  const { nombre, phone, cuit, email, role, password, ejecutivoId, condicionId } = req.body;
+  const { nombre, phone, cuit, email, role, password, ejecutivoId, condicionesIds } = req.body;
   const data = {
     nombre, phone, cuit, email, role,
     ejecutivoId: ejecutivoId || null
@@ -139,16 +146,22 @@ export const update = async (req, res) => {
   if (usuario) {
     await usuario.update(data);
 
-    // Actualizar condición comercial
-    if (condicionId) {
-      // Reemplaza todas las condiciones con la nueva (o vacía si no se envió nada y manejamos array)
-      // Si condicionId es un solo valor (radio/select simple):
-      await usuario.setCondicionComercials([condicionId], {
-        through: { vigencia_desde: new Date(), es_principal: true }
-      });
-    } else {
-      // Si se quiere permitir desasignar, descomentar:
-      // await usuario.setCondicionComercials([]);
+    // Eliminar asignaciones actuales
+    await UsuarioCondicionComercial.destroy({
+      where: { usuarioId: usuario.id }
+    });
+
+    // Crear nuevas asignaciones si hay condiciones seleccionadas
+    if (condicionesIds && Array.isArray(condicionesIds) && condicionesIds.length > 0) {
+      const asignaciones = condicionesIds.map(condicionId => ({
+        usuarioId: usuario.id,
+        condicionId: parseInt(condicionId),
+        vigencia_desde: new Date(),
+        vigente_hasta: null,
+        es_principal: true
+      }));
+
+      await UsuarioCondicionComercial.bulkCreate(asignaciones);
     }
   }
 

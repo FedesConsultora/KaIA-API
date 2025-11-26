@@ -520,3 +520,60 @@ Todo limpio para reimportar.`;
         res.redirect('/admin/condiciones');
     }
 }
+
+// ===== CREAR REGLA DE DESCUENTO =====
+export async function createRegla(req, res) {
+    try {
+        const condicionId = req.params.id;
+        const { rubro, familia, marca, productoId, descuento } = req.body;
+
+        // Validar que al menos uno de los campos esté lleno
+        if (!rubro && !familia && !marca && !productoId) {
+            req.flash('error', 'Debes especificar al menos un criterio (rubro, familia, marca o producto)');
+            return res.redirect(`/admin/condiciones/${condicionId}/edit`);
+        }
+
+        // Convertir descuento de % a decimal
+        const descuentoDecimal = parseFloat(descuento) / 100;
+
+        await CondicionComercialRegla.create({
+            condicionId,
+            rubro: rubro || null,
+            familia: familia || null,
+            marca: marca || null,
+            productoId: productoId || null,
+            descuento: descuentoDecimal
+        });
+
+        req.flash('success', `✅ Regla creada: ${descuento}% de descuento`);
+        res.redirect(`/admin/condiciones/${condicionId}/edit`);
+
+    } catch (err) {
+        console.error('Error creando regla:', err);
+        req.flash('error', `Error al crear regla: ${err.message}`);
+        res.redirect(`/admin/condiciones/${req.params.id}/edit`);
+    }
+}
+
+// ===== ELIMINAR REGLA DE DESCUENTO =====
+export async function deleteRegla(req, res) {
+    try {
+        const regla = await CondicionComercialRegla.findByPk(req.params.reglaId);
+
+        if (!regla) {
+            req.flash('error', 'Regla no encontrada');
+            return res.redirect('/admin/condiciones');
+        }
+
+        const condicionId = regla.condicionId;
+        await regla.destroy();
+
+        req.flash('success', '✅ Regla eliminada');
+        res.redirect(`/admin/condiciones/${condicionId}/edit`);
+
+    } catch (err) {
+        console.error('Error eliminando regla:', err);
+        req.flash('error', `Error al eliminar regla: ${err.message}`);
+        res.redirect('/admin/condiciones');
+    }
+}

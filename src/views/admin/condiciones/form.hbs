@@ -64,35 +64,86 @@
 
             {{#if condicion.id}}
             <div class="card shadow-sm mt-4">
-                <div class="card-header bg-secondary text-white">
+                <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
                     <h6 class="mb-0">
                         <i class="bi bi-list-check"></i> Reglas de Descuento ({{reglas.length}})
                     </h6>
+                    <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal"
+                        data-bs-target="#modalNuevaRegla">
+                        <i class="bi bi-plus-circle"></i> Agregar Regla
+                    </button>
                 </div>
                 <div class="card-body">
+                    <div class="alert alert-info">
+                        <strong>ℹ️ ¿Cómo funcionan las reglas?</strong>
+                        <ul class="mb-0 mt-2">
+                            <li><strong>Rubro:</strong> Ej: "FARMACIA" → Aplica a todos los productos de ese rubro</li>
+                            <li><strong>Familia:</strong> Ej: "ANTIBIOTICOS" → Más específico que rubro</li>
+                            <li><strong>Marca:</strong> Ej: "BAYER" → Aplica solo a productos de esa marca</li>
+                            <li><strong>Producto ID:</strong> Ej: "123" → Aplica solo a ese producto específico (máxima
+                                prioridad)</li>
+                        </ul>
+                        <p class="mb-0 mt-2"><em>Si un producto coincide con varias reglas, se usa la más
+                                específica.</em></p>
+                    </div>
+
                     {{#if reglas.length}}
                     <div class="table-responsive">
-                        <table class="table table-sm table-striped">
-                            <thead>
+                        <table class="table table-sm table-striped table-hover">
+                            <thead class="table-light">
                                 <tr>
                                     <th>Rubro</th>
                                     <th>Familia</th>
                                     <th>Marca</th>
                                     <th>Producto ID</th>
                                     <th>Descuento</th>
+                                    <th style="width: 100px;">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {{#each reglas}}
                                 <tr>
-                                    <td>{{this.rubro}}</td>
-                                    <td>{{this.familia}}</td>
-                                    <td>{{this.marca}}</td>
-                                    <td>{{this.productoId}}</td>
                                     <td>
-                                        <span class="badge bg-success">
-                                            {{formatPercent this.descuento}}%
-                                        </span>
+                                        {{#if this.rubro}}
+                                        <span class="badge bg-primary">{{this.rubro}}</span>
+                                        {{else}}
+                                        <span class="text-muted">—</span>
+                                        {{/if}}
+                                    </td>
+                                    <td>
+                                        {{#if this.familia}}
+                                        <span class="badge bg-info">{{this.familia}}</span>
+                                        {{else}}
+                                        <span class="text-muted">—</span>
+                                        {{/if}}
+                                    </td>
+                                    <td>
+                                        {{#if this.marca}}
+                                        <span class="badge bg-secondary">{{this.marca}}</span>
+                                        {{else}}
+                                        <span class="text-muted">—</span>
+                                        {{/if}}
+                                    </td>
+                                    <td>
+                                        {{#if this.productoId}}
+                                        <span class="badge bg-dark">#{{this.productoId}}</span>
+                                        {{else}}
+                                        <span class="text-muted">—</span>
+                                        {{/if}}
+                                    </td>
+                                    <td>
+                                        <strong class="text-success">{{formatPercent this.descuento}}%</strong>
+                                    </td>
+                                    <td>
+                                        <form method="POST"
+                                            action="/admin/condiciones/reglas/{{this.id}}?_method=DELETE"
+                                            style="display: inline;"
+                                            onsubmit="return confirm('¿Eliminar esta regla?');">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm"
+                                                title="Eliminar">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
                                     </td>
                                 </tr>
                                 {{/each}}
@@ -100,9 +151,9 @@
                         </table>
                     </div>
                     {{else}}
-                    <p class="text-muted mb-0">
-                        Esta condición no tiene reglas definidas.
-                        Las reglas se crean mediante los scripts de importación.
+                    <p class="text-muted text-center py-4">
+                        <i class="bi bi-info-circle"></i> No hay reglas definidas. Haz clic en "Agregar Regla" para
+                        crear la primera.
                     </p>
                     {{/if}}
                 </div>
@@ -111,3 +162,67 @@
         </div>
     </div>
 </div>
+
+{{! Modal para agregar regla }}
+{{#if condicion.id}}
+<div class="modal fade" id="modalNuevaRegla" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Agregar Regla de Descuento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/admin/condiciones/{{condicion.id}}/reglas">
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <strong>⚠️ Importante:</strong> Deja en blanco los campos que no desees especificar. Por
+                        ejemplo, para aplicar a toda una marca, completa solo "Marca" y "Descuento".
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="rubro" class="form-label">Rubro (Opcional)</label>
+                        <input type="text" class="form-control" id="rubro" name="rubro"
+                            placeholder="Ej: FARMACIA, ALIMENTO" oninput="this.value = this.value.toUpperCase()">
+                        <small class="text-muted">Se aplica a todos los productos de este rubro</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="familia" class="form-label">Familia (Opcional)</label>
+                        <input type="text" class="form-control" id="familia" name="familia"
+                            placeholder="Ej: ANTIBIOTICOS, ANTIPARASITARIOS"
+                            oninput="this.value = this.value.toUpperCase()">
+                        <small class="text-muted">Más específico que rubro</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="marca" class="form-label">Marca (Opcional)</label>
+                        <input type="text" class="form-control" id="marca" name="marca" placeholder="Ej: BAYER, PFIZER"
+                            oninput="this.value = this.value.toUpperCase()">
+                        <small class="text-muted">Solo productos de esta marca</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="productoId" class="form-label">ID de Producto (Opcional)</label>
+                        <input type="number" class="form-control" id="productoId" name="productoId"
+                            placeholder="Ej: 123">
+                        <small class="text-muted">Para un producto específico (máxima prioridad)</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="descuento" class="form-label">Descuento (%) *</label>
+                        <input type="number" class="form-control" id="descuento" name="descuento" step="0.01" min="0"
+                            max="100" placeholder="Ej: 20" required>
+                        <small class="text-muted">Porcentaje de descuento (0-100)</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save"></i> Guardar Regla
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{{/if}}
