@@ -23,6 +23,9 @@ const storage = multer.diskStorage({
 
 export const upload = multer({
     storage,
+    limits: {
+        fileSize: 50 * 1024 * 1024 // 50MB
+    },
     fileFilter: (req, file, cb) => {
         const ext = path.extname(file.originalname).toLowerCase();
         if (ext !== '.xlsx' && ext !== '.xls') {
@@ -443,6 +446,81 @@ export async function asignarCondiciones(req, res) {
         await transaction.rollback();
         console.error('Error asignando condiciones:', err);
         req.flash('error', `Error durante la asignación: ${err.message}`);
+        res.redirect('/admin/condiciones');
+    }
+}
+
+// ===== LIMPIAR ASIGNACIONES (PURGE) =====
+export async function purgeAsignaciones(req, res) {
+    const transaction = await sequelize.transaction();
+
+    try {
+        const count = await UsuarioCondicionComercial.count();
+
+        await UsuarioCondicionComercial.destroy({
+            where: {},
+            truncate: true,
+            transaction
+        });
+
+        await transaction.commit();
+
+        req.flash('success', `✅ Eliminadas ${count} asignaciones. Las condiciones se mantienen, pero ningún usuario tiene condiciones asignadas.`);
+        res.redirect('/admin/condiciones');
+
+    } catch (err) {
+        await transaction.rollback();
+        console.error('Error limpiando asignaciones:', err);
+        req.flash('error', `Error al limpiar asignaciones: ${err.message}`);
+        res.redirect('/admin/condiciones');
+    }
+}
+
+// ===== ELIMINAR TODO (PURGE ALL) =====
+export async function purgeAll(req, res) {
+    const transaction = await sequelize.transaction();
+
+    try {
+        const countAsignaciones = await UsuarioCondicionComercial.count();
+        const countReglas = await CondicionComercialRegla.count();
+        const countCondiciones = await CondicionComercial.count();
+
+        // 1. Eliminar asignaciones
+        await UsuarioCondicionComercial.destroy({
+            where: {},
+            truncate: true,
+            transaction
+        });
+
+        // 2. Eliminar reglas
+        await CondicionComercialRegla.destroy({
+            where: {},
+            truncate: true,
+            transaction
+        });
+
+        // 3. Eliminar condiciones
+        await CondicionComercial.destroy({
+            where: {},
+            truncate: true,
+            transaction
+        });
+
+        await transaction.commit();
+
+        const mensaje = `🗑️ Eliminación completa:
+- ${countCondiciones} condiciones
+- ${countReglas} reglas
+- ${countAsignaciones} asignaciones
+Todo limpio para reimportar.`;
+
+        req.flash('success', mensaje);
+        res.redirect('/admin/condiciones');
+
+    } catch (err) {
+        await transaction.rollback();
+        console.error('Error eliminando todo:', err);
+        req.flash('error', `Error al eliminar todo: ${err.message}`);
         res.redirect('/admin/condiciones');
     }
 }

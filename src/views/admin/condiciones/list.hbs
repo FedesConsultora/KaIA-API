@@ -57,6 +57,27 @@
                     </form>
                 </div>
             </div>
+            <hr class="my-3">
+            <div class="row">
+                <div class="col-md-12">
+                    <h6 class="text-danger">⚠️ Herramientas de Limpieza (Irreversible)</h6>
+                    <p class="text-muted small">Usa estas opciones con precaución. No se pueden deshacer.</p>
+                    <div class="d-flex gap-2">
+                        <form method="POST" action="/admin/condiciones/purge-asignaciones"
+                            onsubmit="return confirm('⚠️ ATENCIÓN: Esto eliminará TODAS las asignaciones de condiciones a usuarios.\n\nLas condiciones se mantendrán, pero ningún usuario tendrá condiciones asignadas.\n\n¿Estás seguro de continuar?');">
+                            <button type="submit" class="btn btn-outline-warning btn-sm">
+                                <i class="bi bi-eraser"></i> Limpiar Asignaciones
+                            </button>
+                        </form>
+                        <form method="POST" action="/admin/condiciones/purge-all"
+                            onsubmit="return confirm('🚨 PELIGRO: Esto eliminará:\n- TODAS las condiciones comerciales\n- TODAS sus reglas\n- TODAS las asignaciones a usuarios\n\n¿Estás ABSOLUTAMENTE seguro?');">
+                            <button type="submit" class="btn btn-danger btn-sm">
+                                <i class="bi bi-trash3"></i> Eliminar Todo
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 

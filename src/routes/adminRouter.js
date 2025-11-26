@@ -65,6 +65,8 @@ router.delete('/condiciones/:id', condCtrl.remove);
 router.get('/condiciones/:id/asignados', condCtrl.viewAsignados);
 router.post('/condiciones/import-plantillas', condCtrl.upload.single('excel'), condCtrl.importarCondiciones);
 router.post('/condiciones/import-asignaciones', condCtrl.upload.single('excel'), condCtrl.asignarCondiciones);
+router.post('/condiciones/purge-asignaciones', condCtrl.purgeAsignaciones);
+router.post('/condiciones/purge-all', condCtrl.purgeAll);
 
 router.get('/feedback', fbCtrl.listAdmin);
 export default router;
