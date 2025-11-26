@@ -63,6 +63,8 @@ router.get('/condiciones/:id/edit', condCtrl.formEdit);
 router.put('/condiciones/:id', condCtrl.update);
 router.delete('/condiciones/:id', condCtrl.remove);
 router.get('/condiciones/:id/asignados', condCtrl.viewAsignados);
+router.post('/condiciones/import-plantillas', condCtrl.upload.single('excel'), condCtrl.importarCondiciones);
+router.post('/condiciones/import-asignaciones', condCtrl.upload.single('excel'), condCtrl.asignarCondiciones);
 
 router.get('/feedback', fbCtrl.listAdmin);
 export default router;
