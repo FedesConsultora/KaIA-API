@@ -26,7 +26,13 @@ export const CondicionComercialRegla = sequelize.define('CondicionComercialRegla
     },
     productoId: {
         type: DataTypes.INTEGER,
-        allowNull: true
+        allowNull: true,
+        comment: 'DEPRECATED: Usar codigoProducto en su lugar'
+    },
+    codigoProducto: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'Código del artículo en KronenVet (id_articulo)'
     },
     descuento: {
         type: DataTypes.DECIMAL(5, 4),
@@ -38,7 +44,8 @@ export const CondicionComercialRegla = sequelize.define('CondicionComercialRegla
     createdAt: 'creado_en',
     updatedAt: false,
     indexes: [
-        { fields: ['condicionId', 'rubro', 'familia', 'marca', 'productoId'] },
-        { fields: ['productoId'] }
+        { fields: ['condicionId', 'rubro', 'familia', 'marca'] },
+        { fields: ['productoId'] },
+        { fields: ['codigoProducto'] }
     ]
 });

@@ -112,7 +112,7 @@ Llenar:
   - Rubro: FARMACIA
   - Descuento: 20
 Dejar vacío:
-  - Familia, Marca, Producto ID
+  - Familia, Marca, Código de Producto
 ```
 
 #### NIVEL 2: FAMILIA (Más específico)
@@ -123,7 +123,7 @@ Llenar:
   - Familia: ANTIBIOTICOS
   - Descuento: 22
 Dejar vacío:
-  - Marca, Producto ID
+  - Marca, Código de Producto
 ```
 
 #### NIVEL 3: MARCA/LABORATORIO
@@ -133,18 +133,34 @@ Llenar:
   - Marca: BAYER
   - Descuento: 25
 Dejar vacío:
-  - Rubro, Familia, Producto ID
+  - Rubro, Familia, Código de Producto
 ```
 
 #### NIVEL 4: PRODUCTO ESPECÍFICO (Máxima prioridad)
 ```
-Ejemplo: Solo el producto #789
+Ejemplo: Solo el producto ART-12345
 Llenar:
-  - Producto ID: 789
+  - Código de Producto: ART-12345
   - Descuento: 30
 Dejar vacío:
   - Rubro, Familia, Marca
 ```
+
+**⚠️ IMPORTANTE: ¿Dónde encuentro el código del producto?**
+
+El código de producto es el **código KronenVet** que aparece en la ficha del producto (campo `id_articulo`).
+
+**Cómo encontrarlo:**
+1. Ir a "Productos" en el menú del admin
+2. Buscar el producto que necesitas
+3. Ver la columna "Código" o abrir la ficha del producto
+4. Copiar exactamente el código que aparece
+5. Pegarlo en "Código de Producto" al crear la regla
+
+**Ejemplo:**
+- Producto: "BRAVECTO 10-20kg"  
+- Código KronenVet: "ART-12345"  
+- Usar en regla: `ART-12345`
 
 ### 4.2 Agregar regla a una condición
 
@@ -161,7 +177,7 @@ Para descuento general en FARMACIA:
   Rubro: FARMACIA
   Familia: (dejar vacío)
   Marca: (dejar vacío)
-  Producto ID: (dejar vacío)
+  Código de Producto: (dejar vacío)
   Descuento (%): 20
 ```
 
@@ -313,7 +329,7 @@ COND-51 - Farmacia 20% - Alimento 5%
    - Descuento: `25`
    
    **Regla 4 - Producto específico:**
-   - Producto ID: `456`
+   - Código de Producto: `456`
    - Descuento: `30`
 
 3. Asignar al cliente
@@ -349,7 +365,7 @@ Error. Debes llenar AL MENOS uno de:
 - Rubro
 - Familia
 - Marca
-- Producto ID
+- Código de Producto
 
 ### ¿Puedo tener varias condiciones por cliente?
 

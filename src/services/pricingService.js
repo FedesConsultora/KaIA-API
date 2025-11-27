@@ -69,6 +69,7 @@ export async function getDescuentoParaProducto({ usuarioId, producto }) {
     const prodRubro = (producto.rubro || '').toUpperCase().trim();
     const prodFamilia = (producto.familia || '').toUpperCase().trim();
     const prodMarca = (producto.marca || '').toUpperCase().trim();
+    const prodCodigo = (producto.id_articulo || '').toUpperCase().trim();
     const prodId = producto.id;
 
     let mejorDescuento = 0;
@@ -78,7 +79,19 @@ export async function getDescuentoParaProducto({ usuarioId, producto }) {
     for (const regla of todasLasReglas) {
         const descuentoRegla = Number(regla.descuento) || 0;
 
-        // Prioridad 1: Match por productoId específico (más específico)
+        // Prioridad 1: Match por codigoProducto específico (NUEVO - más específico)
+        if (regla.codigoProducto && prodCodigo) {
+            const reglaCodigo = regla.codigoProducto.toUpperCase().trim();
+            if (reglaCodigo === prodCodigo) {
+                if (descuentoRegla > mejorDescuento) {
+                    mejorDescuento = descuentoRegla;
+                    mejorRegla = regla;
+                }
+                continue;
+            }
+        }
+
+        // Prioridad 2: Match por productoId específico (LEGACY - mantener compatibilidad)
         if (regla.productoId && prodId && regla.productoId === prodId) {
             if (descuentoRegla > mejorDescuento) {
                 mejorDescuento = descuentoRegla;
@@ -109,8 +122,8 @@ export async function getDescuentoParaProducto({ usuarioId, producto }) {
             match = false;
         }
 
-        // Si no especifica nada (rubro, familia, marca, productoId), no aplica
-        if (!reglaRubro && !reglaFamilia && !reglaMarca && !regla.productoId) {
+        // Si no especifica nada (rubro, familia, marca, codigo, productoId), no aplica
+        if (!reglaRubro && !reglaFamilia && !reglaMarca && !regla.codigoProducto && !regla.productoId) {
             match = false;
         }
 
@@ -128,6 +141,7 @@ export async function getDescuentoParaProducto({ usuarioId, producto }) {
             rubro: mejorRegla.rubro,
             familia: mejorRegla.familia,
             marca: mejorRegla.marca,
+            codigoProducto: mejorRegla.codigoProducto,
             productoId: mejorRegla.productoId
         } : null
     };

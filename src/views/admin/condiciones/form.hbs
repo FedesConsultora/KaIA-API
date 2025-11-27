@@ -80,8 +80,9 @@
                             <li><strong>Rubro:</strong> Ej: "FARMACIA" → Aplica a todos los productos de ese rubro</li>
                             <li><strong>Familia:</strong> Ej: "ANTIBIOTICOS" → Más específico que rubro</li>
                             <li><strong>Marca:</strong> Ej: "BAYER" → Aplica solo a productos de esa marca</li>
-                            <li><strong>Producto ID:</strong> Ej: "123" → Aplica solo a ese producto específico (máxima
-                                prioridad)</li>
+                            <li><strong>Código Producto:</strong> Ej: "ART-12345" → Aplica solo a ese producto
+                                específico (máxima prioridad).
+                                Usa el código KronenVet que encuentras en la ficha del producto.</li>
                         </ul>
                         <p class="mb-0 mt-2"><em>Si un producto coincide con varias reglas, se usa la más
                                 específica.</em></p>
@@ -95,7 +96,7 @@
                                     <th>Rubro</th>
                                     <th>Familia</th>
                                     <th>Marca</th>
-                                    <th>Producto ID</th>
+                                    <th>Código Producto</th>
                                     <th>Descuento</th>
                                     <th style="width: 100px;">Acciones</th>
                                 </tr>
@@ -125,8 +126,11 @@
                                         {{/if}}
                                     </td>
                                     <td>
-                                        {{#if this.productoId}}
-                                        <span class="badge bg-dark">#{{this.productoId}}</span>
+                                        {{#if this.codigoProducto}}
+                                        <span class="badge bg-dark">{{this.codigoProducto}}</span>
+                                        {{else if this.productoId}}
+                                        <span class="badge bg-warning text-dark"
+                                            title="ID legacy">#{{this.productoId}}</span>
                                         {{else}}
                                         <span class="text-muted">—</span>
                                         {{/if}}
@@ -202,10 +206,14 @@
                     </div>
 
                     <div class="mb-3">
-                        <label for="productoId" class="form-label">ID de Producto (Opcional)</label>
-                        <input type="number" class="form-control" id="productoId" name="productoId"
-                            placeholder="Ej: 123">
-                        <small class="text-muted">Para un producto específico (máxima prioridad)</small>
+                        <label for="codigoProducto" class="form-label">Código de Producto (Opcional)</label>
+                        <input type="text" class="form-control" id="codigoProducto" name="codigoProducto"
+                            placeholder="Ej: ART-12345, PROD-789" oninput="this.value = this.value.toUpperCase()">
+                        <small class="text-muted">
+                            <strong>Código KronenVet del artículo.</strong> Para un producto específico (máxima
+                            prioridad).
+                            <br>Encuentra el código en la ficha del producto en el sistema.
+                        </small>
                     </div>
 
                     <div class="mb-3">

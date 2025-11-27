@@ -525,11 +525,11 @@ Todo limpio para reimportar.`;
 export async function createRegla(req, res) {
     try {
         const condicionId = req.params.id;
-        const { rubro, familia, marca, productoId, descuento } = req.body;
+        const { rubro, familia, marca, codigoProducto, descuento } = req.body;
 
         // Validar que al menos uno de los campos esté lleno
-        if (!rubro && !familia && !marca && !productoId) {
-            req.flash('error', 'Debes especificar al menos un criterio (rubro, familia, marca o producto)');
+        if (!rubro && !familia && !marca && !codigoProducto) {
+            req.flash('error', 'Debes especificar al menos un criterio (rubro, familia, marca o código de producto)');
             return res.redirect(`/admin/condiciones/${condicionId}/edit`);
         }
 
@@ -541,7 +541,7 @@ export async function createRegla(req, res) {
             rubro: rubro || null,
             familia: familia || null,
             marca: marca || null,
-            productoId: productoId || null,
+            codigoProducto: codigoProducto || null,
             descuento: descuentoDecimal
         });
 
