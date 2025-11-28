@@ -246,12 +246,13 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   // POST-FILTRO + SCORE con pesos para señales ricas (y penalización por especie opuesta)
   const tokensForHit = Array.from(new Set([...shouldTokens, ...must])).filter(Boolean);
 
-  // 🎯 Detectar categoría de búsqueda para BOOST (no filtro duro)
+  // 🎯 Detectar categoría de búsqueda (usando término + GPT signals)
   const termLower = term.toLowerCase();
   const buscaAlimento = /\b(comida|alimento|nutricion|balanceado|feed|pienso)\b/i.test(term);
-  const buscaPipeta = /\b(pipeta|spot.?on|antipulga|antipara|flea)\b/i.test(term);
+  const buscaPipeta = /\b(pipeta|spot.?on|antipulga|antiparasit|flea|tick|garrapata|pulga)\b/i.test(term);
+  const buscaMedicamento = /\b(medicamento|medicina|tratamiento|antibiotico|antiinflamatorio|analgesico)\b/i.test(term);
 
-  console.log(`🔍 CATEGORÍA DETECTADA: alimento=${buscaAlimento}, pipeta=${buscaPipeta}`);
+  console.log(`🔍 CATEGORÍA BÚSQUEDA: alimento=${buscaAlimento}, pipeta=${buscaPipeta}, medicamento=${buscaMedicamento}`);
 
   const scored = candidatos
     .map((p) => {
@@ -262,23 +263,48 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
       let s = 0;
       let hits = 0;
 
-      // 🎯 BOOST (no filtro): Si busca alimento, dar puntos extra a productos alimenticios
+      // 🏷️ CATEGORIZACIÓN INTELIGENTE del producto
+      // Revisa: RUBRO + FAMILIA + OBSERVACIONES
+
+      const esAlimento = /\b(alimento|alimentos|food|feed|nutricion|snacks?|comida)\b/i.test(p.rubro || '') ||
+        /\b(alimento|alimentos|food|feed|nutricion)\b/i.test(p.familia || '');
+
+      const esPipeta = /\b(pipeta|spot|topico|antiparasit.*topico)\b/i.test(p.familia || '') ||
+        /\b(pipeta|spot.?on)\b/i.test(p.nombre || '') ||
+        (/antiparasit/i.test(p.familia || '') && /topico|externo/i.test(p.familia || ''));
+
+      const esMedicamento = /\b(antibiotico|antiinflamatorio|analgesico|antidiarreico|hepatoprotector|cardiovascular)\b/i.test(p.familia || '') ||
+        /\b(iny|inyectable|comprimido|suspension|solucion)\b/i.test(p.presentacion || '') ||
+        (/medicamento|tratamiento/i.test(p.observaciones || '') && !/alimento/i.test(p.familia || ''));
+
+      // 🎯 BOOST + PENALTY SYSTEM
       if (buscaAlimento) {
-        // Revisar RUBRO y FAMILIA
-        const esAlimento = /\b(alimento|alimentos|food|feed|nutricion|snacks?|comida)\b/i.test(p.rubro || '') ||
-          /\b(alimento|alimentos|food|feed|nutricion)\b/i.test(p.familia || '');
         if (esAlimento) {
-          s += 15; // BOOST grande
-          console.log(`   ✅ BOOST ALIMENTO: "${p.nombre}" (rubro: ${p.rubro}, familia: ${p.familia})`);
+          s += 15;
+          console.log(`   ✅ BOOST ALIMENTO: "${p.nombre}"`);
+        } else {
+          s -= 25; // ⚠️ HEAVY PENALTY
+          console.log(`   ❌ PENALTY (no es alimento): "${p.nombre}" (rubro: ${p.rubro})`);
         }
       }
 
-      // 🎯 BOOST: Si busca pipeta, dar puntos extra a antiparasitarios tópicos
       if (buscaPipeta) {
-        const esPipeta = /pipeta|spot|topico/i.test(p.familia || '') || /pipeta/i.test(p.nombre || '');
         if (esPipeta) {
           s += 15;
           console.log(`   ✅ BOOST PIPETA: "${p.nombre}"`);
+        } else {
+          s -= 25;
+          console.log(`   ❌ PENALTY (no es pipeta): "${p.nombre}"`);
+        }
+      }
+
+      if (buscaMedicamento) {
+        if (esMedicamento) {
+          s += 15;
+          console.log(`   ✅ BOOST MEDICAMENTO: "${p.nombre}"`);
+        } else {
+          s -= 25;
+          console.log(`   ❌ PENALTY (no es medicamento): "${p.nombre}"`);
         }
       }
 
@@ -331,6 +357,21 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
       return { p, s, hits, H };
     })
+    // 🚫 FILTRO DURO: Si usuario seleccionó marca específica, SOLO esa marca
+    .filter(x => {
+      if (sig.brands && sig.brands.length > 0) {
+        const marcaProducto = norm(x.p.marca || '');
+        const marcasPermitidas = sig.brands.map(b => norm(b));
+        const match = marcasPermitidas.some(m => marcaProducto.includes(m) || m.includes(marcaProducto));
+        if (!match) {
+          console.log(`   🚫 FILTRADO POR MARCA: "${x.p.nombre}" (marca: ${x.p.marca}, buscando: ${sig.brands.join(', ')})`);
+          return false;
+        }
+      }
+      return true;
+    })
+    // 🚫 Filtrar productos MUY penalizados (score < -10)
+    .filter(x => x.s > -10)
     // Si hay MUST, al menos uno debe matchear (con regex de peso/pack)
     .filter(x => must.length ? must.some(t => t && tokenHit(x.H, t)) : x.hits > 0)
     .sort((a, b) => b.s - a.s);
