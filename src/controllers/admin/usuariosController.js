@@ -55,7 +55,6 @@ export const list = async (req, res) => {
   });
 
   const usuariosPlain = rows.map(r => r.toJSON());
-  console.log('Usuarios data sample:', JSON.stringify(usuariosPlain[0], null, 2));
 
   res.render('admin/usuarios/list', {
     title: 'Usuarios',
@@ -63,8 +62,9 @@ export const list = async (req, res) => {
     q, page, pageSize, sort, dir,
     total: count,
     totalPages: Math.max(Math.ceil(count / pageSize), 1),
-    success: req.flash('success'),
-    error: req.flash('error')
+    // Flash messages ya están en res.locals gracias al middleware global
+    success: res.locals.success,
+    error: res.locals.error
   });
 };
 
@@ -149,14 +149,6 @@ export const create = async (req, res) => {
 
 export const update = async (req, res) => {
   try {
-    // ===== DEBUGGING =====
-    console.log('====== UPDATE USUARIO ======');
-    console.log('req.body completo:', JSON.stringify(req.body, null, 2));
-    console.log('condicionesIds tipo:', typeof req.body.condicionesIds);
-    console.log('condicionesIds valor:', req.body.condicionesIds);
-    console.log('condicionesIds isArray:', Array.isArray(req.body.condicionesIds));
-    // ===== FIN DEBUGGING =====
-
     const { nombre, phone, cuit, email, role, password, ejecutivoId } = req.body;
 
     // ⚠️ IMPORTANTE: Los checkboxes vienen como 'condicionesIds[]' con corchetes
@@ -199,14 +191,10 @@ export const update = async (req, res) => {
     }
     // Si condicionesIds es undefined, nuevasCondiciones queda como array vacío
 
-    console.log('nuevasCondiciones procesadas:', nuevasCondiciones);
-
     // Eliminar asignaciones actuales
     await UsuarioCondicionComercial.destroy({
       where: { usuarioId: usuario.id }
     });
-
-    console.log('Asignaciones eliminadas para usuario:', usuario.id);
 
     // Crear nuevas asignaciones si hay condiciones seleccionadas
     if (nuevasCondiciones.length > 0) {
@@ -218,13 +206,7 @@ export const update = async (req, res) => {
         es_principal: true
       }));
 
-      console.log('Creando asignaciones:', asignaciones);
-
       await UsuarioCondicionComercial.bulkCreate(asignaciones);
-
-      console.log('✅ Asignaciones creadas exitosamente');
-    } else {
-      console.log('⚠️ No hay condiciones para asignar (array vacío)');
     }
 
     req.flash('success', `✅ Usuario #${usuario.id} "${nombre || phone}" actualizado exitosamente`);
