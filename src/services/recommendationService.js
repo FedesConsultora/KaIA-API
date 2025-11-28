@@ -264,7 +264,8 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
       // 🚫 FILTRO DURO: Si busca alimento, excluir productos que NO son alimentos
       if (buscaAlimento) {
-        const esAlimento = /\b(alimento|food|feed|nutricion)\b/i.test(p.rubro || '');
+        // Incluir plural "ALIMENTOS", "SNACKS", "ALIMENTOS HUMEDOS", etc
+        const esAlimento = /\b(alimento|alimentos|food|feed|nutricion|snack|comida)\b/i.test(p.rubro || '');
         if (!esAlimento) {
           console.log(`   ❌ FILTRADO: "${p.nombre}" (rubro: ${p.rubro}) - No es alimento`);
           return null; // Descartar completamente
