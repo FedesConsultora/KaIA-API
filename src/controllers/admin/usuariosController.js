@@ -156,16 +156,34 @@ export const update = async (req, res) => {
 
     await usuario.update(data);
 
+    // GESTIÓN DE CONDICIONES COMERCIALES
+    // Solo actualizar si el campo viene en el formulario
+    // Si condicionesIds es undefined, significa que el campo no existe en el form (no debería pasar)
+    // Si condicionesIds es string, es un solo valor (convertir a array)
+    // Si condicionesIds es array vacío, significa que desmarcó todas
+    // Si condicionesIds es array con valores, usar esos
+
+    let nuevasCondiciones = [];
+
+    if (typeof condicionesIds === 'string') {
+      // Un solo checkbox marcado
+      nuevasCondiciones = [parseInt(condicionesIds)];
+    } else if (Array.isArray(condicionesIds)) {
+      // Múltiples checkboxes marcados (o ninguno si es array vacío)
+      nuevasCondiciones = condicionesIds.map(id => parseInt(id));
+    }
+    // Si condicionesIds es undefined, nuevasCondiciones queda como array vacío
+
     // Eliminar asignaciones actuales
     await UsuarioCondicionComercial.destroy({
       where: { usuarioId: usuario.id }
     });
 
     // Crear nuevas asignaciones si hay condiciones seleccionadas
-    if (condicionesIds && Array.isArray(condicionesIds) && condicionesIds.length > 0) {
-      const asignaciones = condicionesIds.map(condicionId => ({
+    if (nuevasCondiciones.length > 0) {
+      const asignaciones = nuevasCondiciones.map(condicionId => ({
         usuarioId: usuario.id,
-        condicionId: parseInt(condicionId),
+        condicionId,
         vigencia_desde: new Date(),
         vigente_hasta: null,
         es_principal: true
