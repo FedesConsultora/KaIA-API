@@ -63,8 +63,8 @@ export const list = async (req, res) => {
     q, page, pageSize, sort, dir,
     total: count,
     totalPages: Math.max(Math.ceil(count / pageSize), 1),
-    success: req.flash?.('success'),
-    error: req.flash?.('error')
+    success: req.flash('success'),
+    error: req.flash('error')
   });
 };
 
@@ -106,7 +106,11 @@ export const formEdit = async (req, res) => {
 
 /* ───────── CRUD ───────── */
 export const create = async (req, res) => {
-  const { nombre, phone, cuit, email, role, password, ejecutivoId, condicionesIds } = req.body;
+  const { nombre, phone, cuit, email, role, password, ejecutivoId } = req.body;
+
+  // ⚠️ IMPORTANTE: Los checkboxes vienen como 'condicionesIds[]' con corchetes
+  const condicionesIds = req.body['condicionesIds[]'] || req.body.condicionesIds;
+
   const data = {
     nombre, phone, cuit, email, role,
     ejecutivoId: ejecutivoId || null
@@ -117,17 +121,26 @@ export const create = async (req, res) => {
   const nuevoUsuario = await Usuario.create(data);
 
   // Asignar condiciones comerciales (puede ser un array o vacío)
-  if (condicionesIds && Array.isArray(condicionesIds) && condicionesIds.length > 0) {
-    // Crear asignaciones con vigencia_desde
-    const asignaciones = condicionesIds.map(condicionId => ({
-      usuarioId: nuevoUsuario.id,
-      condicionId: parseInt(condicionId),
-      vigencia_desde: new Date(),
-      vigente_hasta: null,
-      es_principal: true
-    }));
+  if (condicionesIds) {
+    let condicionesArray = [];
 
-    await UsuarioCondicionComercial.bulkCreate(asignaciones);
+    if (typeof condicionesIds === 'string') {
+      condicionesArray = [parseInt(condicionesIds)];
+    } else if (Array.isArray(condicionesIds)) {
+      condicionesArray = condicionesIds.map(id => parseInt(id));
+    }
+
+    if (condicionesArray.length > 0) {
+      const asignaciones = condicionesArray.map(condicionId => ({
+        usuarioId: nuevoUsuario.id,
+        condicionId,
+        vigencia_desde: new Date(),
+        vigente_hasta: null,
+        es_principal: true
+      }));
+
+      await UsuarioCondicionComercial.bulkCreate(asignaciones);
+    }
   }
 
   req.flash('success', `✅ Usuario #${nuevoUsuario.id} "${nombre || phone}" creado exitosamente`);
@@ -144,7 +157,11 @@ export const update = async (req, res) => {
     console.log('condicionesIds isArray:', Array.isArray(req.body.condicionesIds));
     // ===== FIN DEBUGGING =====
 
-    const { nombre, phone, cuit, email, role, password, ejecutivoId, condicionesIds } = req.body;
+    const { nombre, phone, cuit, email, role, password, ejecutivoId } = req.body;
+
+    // ⚠️ IMPORTANTE: Los checkboxes vienen como 'condicionesIds[]' con corchetes
+    const condicionesIds = req.body['condicionesIds[]'] || req.body.condicionesIds;
+
     const data = {
       nombre,
       phone: phone || null,
