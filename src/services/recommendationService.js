@@ -225,7 +225,7 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   const candidatos = await Producto.findAll({
     where,
     include: [{ model: Promocion, attributes: ['nombre'], required: false }],
-    limit: 120,
+    limit: 200, // ⬆️ Aumentado de 120 a 200
   });
 
   console.log(`📦 CANDIDATOS ENCONTRADOS: ${candidatos.length}`);
@@ -246,7 +246,7 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   // POST-FILTRO + SCORE con pesos para señales ricas (y penalización por especie opuesta)
   const tokensForHit = Array.from(new Set([...shouldTokens, ...must])).filter(Boolean);
 
-  // 🎯 Detectar categoría de búsqueda para filtrar por RUBRO
+  // 🎯 Detectar categoría de búsqueda para BOOST (no filtro duro)
   const termLower = term.toLowerCase();
   const buscaAlimento = /\b(comida|alimento|nutricion|balanceado|feed|pienso)\b/i.test(term);
   const buscaPipeta = /\b(pipeta|spot.?on|antipulga|antipara|flea)\b/i.test(term);
@@ -262,26 +262,24 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
       let s = 0;
       let hits = 0;
 
-      // 🚫 FILTRO DURO: Si busca alimento, excluir productos que NO son alimentos
+      // 🎯 BOOST (no filtro): Si busca alimento, dar puntos extra a productos alimenticios
       if (buscaAlimento) {
-        // Incluir plural "ALIMENTOS", "SNACKS", "ALIMENTOS HUMEDOS", etc
-        const esAlimento = /\b(alimento|alimentos|food|feed|nutricion|snack|comida)\b/i.test(p.rubro || '');
-        if (!esAlimento) {
-          console.log(`   ❌ FILTRADO: "${p.nombre}" (rubro: ${p.rubro}) - No es alimento`);
-          return null; // Descartar completamente
+        // Revisar RUBRO y FAMILIA
+        const esAlimento = /\b(alimento|alimentos|food|feed|nutricion|snacks?|comida)\b/i.test(p.rubro || '') ||
+          /\b(alimento|alimentos|food|feed|nutricion)\b/i.test(p.familia || '');
+        if (esAlimento) {
+          s += 15; // BOOST grande
+          console.log(`   ✅ BOOST ALIMENTO: "${p.nombre}" (rubro: ${p.rubro}, familia: ${p.familia})`);
         }
-        // Boost si coincide el rubro
-        s += 10;
       }
 
-      // 🚫 FILTRO DURO: Si busca pipeta, solo mostrar antiparasitarios tópicos
+      // 🎯 BOOST: Si busca pipeta, dar puntos extra a antiparasitarios tópicos
       if (buscaPipeta) {
         const esPipeta = /pipeta|spot|topico/i.test(p.familia || '') || /pipeta/i.test(p.nombre || '');
-        if (!esPipeta) {
-          console.log(`   ❌ FILTRADO: "${p.nombre}" - No es pipeta`);
-          return null;
+        if (esPipeta) {
+          s += 15;
+          console.log(`   ✅ BOOST PIPETA: "${p.nombre}"`);
         }
-        s += 10;
       }
 
       // MUST fuerte (activos, elecciones del usuario)
@@ -333,7 +331,6 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
       return { p, s, hits, H };
     })
-    .filter(x => x !== null) // Eliminar productos filtrados
     // Si hay MUST, al menos uno debe matchear (con regex de peso/pack)
     .filter(x => must.length ? must.some(t => t && tokenHit(x.H, t)) : x.hits > 0)
     .sort((a, b) => b.s - a.s);
