@@ -72,6 +72,16 @@ export async function getDescuentoParaProducto({ usuarioId, producto }) {
     const prodCodigo = (producto.id_articulo || '').toUpperCase().trim();
     const prodId = producto.id;
 
+    console.log(`💰 [PRICING] Calculando descuento para producto:`, {
+        id: prodId,
+        id_articulo: prodCodigo,
+        nombre: producto.nombre,
+        marca: prodMarca,
+        rubro: prodRubro,
+        familia: prodFamilia
+    });
+    console.log(`💰 [PRICING] Reglas a evaluar: ${todasLasReglas.length}`);
+
     let mejorDescuento = 0;
     let mejorRegla = null;
 
@@ -79,20 +89,34 @@ export async function getDescuentoParaProducto({ usuarioId, producto }) {
     for (const regla of todasLasReglas) {
         const descuentoRegla = Number(regla.descuento) || 0;
 
+        console.log(`   📋 Evaluando regla ID=${regla.id}:`, {
+            codigoProducto: regla.codigoProducto,
+            productoId: regla.productoId,
+            rubro: regla.rubro,
+            familia: regla.familia,
+            marca: regla.marca,
+            descuento: `${(descuentoRegla * 100).toFixed(2)}%`
+        });
+
         // Prioridad 1: Match por codigoProducto específico (NUEVO - más específico)
         if (regla.codigoProducto && prodCodigo) {
             const reglaCodigo = regla.codigoProducto.toUpperCase().trim();
+            console.log(`      🔍 Comparando códigos: "${reglaCodigo}" === "${prodCodigo}"`);
             if (reglaCodigo === prodCodigo) {
+                console.log(`      ✅ MATCH POR CÓDIGO! Descuento: ${(descuentoRegla * 100).toFixed(2)}%`);
                 if (descuentoRegla > mejorDescuento) {
                     mejorDescuento = descuentoRegla;
                     mejorRegla = regla;
                 }
                 continue;
+            } else {
+                console.log(`      ❌ No match por código`);
             }
         }
 
         // Prioridad 2: Match por productoId específico (LEGACY - mantener compatibilidad)
         if (regla.productoId && prodId && regla.productoId === prodId) {
+            console.log(`      ✅ MATCH POR PRODUCT ID! Descuento: ${(descuentoRegla * 100).toFixed(2)}%`);
             if (descuentoRegla > mejorDescuento) {
                 mejorDescuento = descuentoRegla;
                 mejorRegla = regla;
@@ -127,11 +151,18 @@ export async function getDescuentoParaProducto({ usuarioId, producto }) {
             match = false;
         }
 
-        if (match && descuentoRegla > mejorDescuento) {
-            mejorDescuento = descuentoRegla;
-            mejorRegla = regla;
+        if (match) {
+            console.log(`      ✅ MATCH GENERAL! Descuento: ${(descuentoRegla * 100).toFixed(2)}%`);
+            if (descuentoRegla > mejorDescuento) {
+                mejorDescuento = descuentoRegla;
+                mejorRegla = regla;
+            }
+        } else {
+            console.log(`      ❌ No match general`);
         }
     }
+
+    console.log(`💰 [PRICING] RESULTADO: Mejor descuento = ${(mejorDescuento * 100).toFixed(2)}%`, mejorRegla ? { reglaId: mejorRegla.id } : 'sin regla');
 
     return {
         descuento: mejorDescuento,

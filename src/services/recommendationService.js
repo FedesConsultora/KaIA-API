@@ -357,9 +357,23 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
       return { p, s, hits, H };
     })
-    // 🚫 FILTRO DURO: Si usuario seleccionó marca específica, SOLO esa marca
+    // 🚫 FILTRO DURO POR MARCA: Solo si la marca NO está en el término de búsqueda original
+    //    (evita filtrar cuando usuario busca "Power Gold" directamente)
     .filter(x => {
       if (sig.brands && sig.brands.length > 0) {
+        // Si alguna brand está en MUST o en el term original, NO filtrar
+        // (significa que el usuario la escribió directamente, no la seleccionó de una lista)
+        const brandInSearchTerm = sig.brands.some(b => {
+          const normBrand = norm(b);
+          return must.some(m => norm(m).includes(normBrand)) || norm(term).includes(normBrand);
+        });
+
+        if (brandInSearchTerm) {
+          // No filtrar, el usuario buscó esto directamente
+          return true;
+        }
+
+        // Filtrar: usuario seleccionó marca en desambiguación
         const marcaProducto = norm(x.p.marca || '');
         const marcasPermitidas = sig.brands.map(b => norm(b));
         const match = marcasPermitidas.some(m => marcaProducto.includes(m) || m.includes(marcaProducto));
