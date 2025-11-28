@@ -40,6 +40,18 @@ export const DEF_RECO = {
 export async function getOrCreateSession(phone) {
   let s = await WhatsAppSession.findOne({ where: { phone } });
   if (!s) s = await WhatsAppSession.create({ phone, state: 'awaiting_cuit' });
+
+  // 🔥 Si la sesión tiene CUIT, buscar el Usuario y anexarlo
+  if (s.cuit) {
+    // Importar dinámicamente para evitar dependencia circular
+    const { getVetByCuit } = await import('./userService.js');
+    const usuario = await getVetByCuit(s.cuit);
+    if (usuario) {
+      // Agregar el Usuario como propiedad virtual (no persiste en DB)
+      s.Usuario = usuario;
+    }
+  }
+
   return s;
 }
 
@@ -228,20 +240,20 @@ function mergeSignals(a = {}, b = {}) {
   const B = { ...DEF_SIGNALS, ...(b || {}) };
   return {
     species: B.species ?? A.species ?? null,
-    form:    B.form    ?? A.form    ?? null,
-    brands:  dedup([...(A.brands||[]), ...(B.brands||[])]),
-    actives: dedup([...(A.actives||[]), ...(B.actives||[])]),
-    indications: dedup([...(A.indications||[]), ...(B.indications||[])]),
+    form: B.form ?? A.form ?? null,
+    brands: dedup([...(A.brands || []), ...(B.brands || [])]),
+    actives: dedup([...(A.actives || []), ...(B.actives || [])]),
+    indications: dedup([...(A.indications || []), ...(B.indications || [])]),
     weight_hint: B.weight_hint ?? A.weight_hint ?? null,
-    packs:   dedup([...(A.packs||[]), ...(B.packs||[])]),
-    negatives: dedup([...(A.negatives||[]), ...(B.negatives||[])])
+    packs: dedup([...(A.packs || []), ...(B.packs || [])]),
+    negatives: dedup([...(A.negatives || []), ...(B.negatives || [])])
   };
 }
 
 function mergeTokenSets(a = {}, b = {}) {
-  const mergeArr = (x = [], y = []) => Array.from(new Set([...(x||[]), ...(y||[])])).filter(Boolean);
+  const mergeArr = (x = [], y = []) => Array.from(new Set([...(x || []), ...(y || [])])).filter(Boolean);
   return {
-    must:   mergeArr(a.must,   b.must),
+    must: mergeArr(a.must, b.must),
     should: mergeArr(a.should, b.should),
     negate: mergeArr(a.negate, b.negate)
   };
@@ -253,7 +265,7 @@ function deepMergeReco(a = {}, b = {}) {
     ...b,
     tokens: mergeTokenSets(a.tokens || {}, b.tokens || {}),
     signals: mergeSignals(a.signals || {}, b.signals || {}),
-    asked: dedup([...(a.asked||[]), ...(b.asked||[])]),
+    asked: dedup([...(a.asked || []), ...(b.asked || [])]),
     hops: Math.max(a.hops || 0, b.hops || 0)
   };
 }

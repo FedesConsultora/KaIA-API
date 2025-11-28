@@ -296,6 +296,14 @@ export async function openProductDetail(from, productId) {
   const session = await getOrCreateSession(from);
   const usuarioId = session?.Usuario?.id || null;
 
+  console.log(`👤 [PRODUCT DETAIL] Usuario session:`, {
+    from,
+    hasSession: !!session,
+    hasUsuario: !!session?.Usuario,
+    usuarioId,
+    usuarioNombre: session?.Usuario?.nombre || 'n/a'
+  });
+
   const detail = await formatProductoDetalle(p, usuarioId);
   await sendWhatsAppText(from, t('producto_ficha_header'));
   await sendWhatsAppText(from, detail);
@@ -391,10 +399,17 @@ export async function runDisambiguationOrRecommend({ from, nombre, consulta }) {
 
   // 2) Señales ricas (GPT) + merge con señales persistidas
   const signalsNew = await extraerSenalesRicas(consulta);
+
+  // BRANDS: Solo acumular si el usuario las seleccionó en desambiguación, NO si vienen de GPT
+  // Si prev.asked incluye 'brand', significa que el usuario seleccionó una marca
+  const userSelectedBrand = (prev?.asked || []).includes('brand');
+
   const signals = {
     species: prev.signals?.species ?? signalsNew.species ?? null,
     form: prev.signals?.form ?? signalsNew.form ?? null,
-    brands: Array.from(new Set([...(prev.signals?.brands || []), ...(signalsNew.brands || [])])),
+    brands: userSelectedBrand
+      ? Array.from(new Set([...(prev.signals?.brands || []), ...(signalsNew.brands || [])]))
+      : signalsNew.brands || [], // Solo usar las nuevas de GPT
     actives: Array.from(new Set([...(prev.signals?.actives || []), ...(signalsNew.actives || [])])),
     indications: Array.from(new Set([...(prev.signals?.indications || []), ...(signalsNew.indications || [])])),
     weight_hint: prev.signals?.weight_hint ?? signalsNew.weight_hint ?? null,
