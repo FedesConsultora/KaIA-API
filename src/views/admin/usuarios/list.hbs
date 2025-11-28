@@ -15,17 +15,21 @@
   </div>
 
   {{#if success}}
+  {{#each success}}
   <div class="alert alert-success alert-dismissible fade show">
-    {{success}}
+    {{{this}}}
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
   </div>
+  {{/each}}
   {{/if}}
 
   {{#if error}}
+  {{#each error}}
   <div class="alert alert-danger alert-dismissible fade show">
-    {{error}}
+    {{{this}}}
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
   </div>
+  {{/each}}
   {{/if}}
 
   {{!-- Filtros --}}
