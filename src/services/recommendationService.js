@@ -2,7 +2,8 @@
 import { Op } from 'sequelize';
 import { Producto, Promocion } from '../models/index.js';
 
-const DEBUG = process.env.DEBUG_RECO === '1';
+// 🔍 DEBUG ALWAYS ON para desambiguación
+const DEBUG = true;
 
 const norm = (s) =>
   (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
@@ -167,14 +168,27 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
     ...(Array.isArray(sig.negatives) ? sig.negatives.map(norm) : [])
   ])).filter(Boolean);
 
-  if (DEBUG) {
-    console.log(`[RECO][INPUT] term="${term}" must=${must.length} should=${should.length} negate=${negate.length}`);
-  }
+  console.log('🔍 ========== RECOMENDACIÓN INICIO ==========');
+  console.log(`📝 BÚSQUEDA: "${term}"`);
+  console.log(`👤 Usuario ID: ${usuarioId || 'ninguno'}`);
+  console.log(`🎯 SEÑALES GPT:`, {
+    must: gpt.must || [],
+    should: gpt.should || [],
+    negate: gpt.negate || []
+  });
+  console.log(`🎯 SEÑALES RICAS:`, sig);
+  console.log(`📊 FILTROS COMPILADOS:`, {
+    must: must,
+    should: should.slice(0, 10), // Solo primeros 10
+    negate: negate
+  });
+
   if (!term && !must.length && !should.length) {
+    console.log('⚠️ Sin términos de búsqueda, retornando vacío');
     return { validos: [], top: null, similares: [] };
   }
   if (/^main\./i.test(term)) {
-    if (DEBUG) console.log(`[RECO][SKIP] term="${term}" reason=main_cmd`);
+    console.log(`⚠️ SKIP: term="${term}" (comando main)`);
     return { validos: [], top: null, similares: [] };
   }
 
@@ -206,9 +220,7 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
     ...(andClauses.length ? { [Op.and]: andClauses } : {}),
   };
 
-  if (DEBUG) {
-    console.log(`[RECO][SQL] likeOr=${likeOr.length} andClauses=${andClauses.length} (must=${mustClauses.length}, negate=${negateClauses.length})`);
-  }
+  console.log(`🔎 SQL WHERE: likeOr=${likeOr.length} cláusulas, andClauses=${andClauses.length} (must=${mustClauses.length}, negate=${negateClauses.length})`);
 
   const candidatos = await Producto.findAll({
     where,
@@ -216,10 +228,18 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
     limit: 120,
   });
 
-  if (DEBUG) console.log(`[RECO][CAND] count=${candidatos.length}`);
+  console.log(`📦 CANDIDATOS ENCONTRADOS: ${candidatos.length}`);
+
+  // Mostrar diversidad de marcas y rubros
+  const marcasEncontradas = [...new Set(candidatos.map(p => p.marca).filter(Boolean))];
+  const rubrosEncontrados = [...new Set(candidatos.map(p => p.rubro).filter(Boolean))];
+  console.log(`   🏷️  Marcas: ${marcasEncontradas.length} diferentes →`, marcasEncontradas.slice(0, 10));
+  console.log(`   📁 Rubros: ${rubrosEncontrados.length} diferentes →`, rubrosEncontrados);
+
   logDiversity('pre-score', candidatos);
 
   if (!candidatos.length) {
+    console.log('❌ NO SE ENCONTRARON CANDIDATOS');
     return { validos: [], top: null, similares: [] };
   }
 
@@ -279,6 +299,27 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   const ordered = scored.map(x => x.p);
   logDiversity('post-score', ordered);
 
+  console.log(`✅ SCORING COMPLETO: ${scored.length} productos con score > 0`);
+  console.log(`   Top 5 scores:`, scored.slice(0, 5).map(x => ({
+    nombre: x.p.nombre,
+    marca: x.p.marca,
+    score: x.s.toFixed(2),
+    hits: x.hits
+  })));
+
+  // Análisis para desambiguación
+  const todasLasMarcas = [...new Set(ordered.map(p => p.marca).filter(Boolean))];
+  const todosLosPesos = [...new Set(ordered.flatMap(p => {
+    const match = (p.nombre || '').match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|cc|mg)/gi);
+    return match || [];
+  }))];
+  const todasLasPresentaciones = [...new Set(ordered.map(p => p.presentacion).filter(Boolean))];
+
+  console.log(`🎲 OPCIONES PARA DESAMBIGUAR (en ${ordered.length} resultados):`);
+  console.log(`   • Marcas disponibles (${todasLasMarcas.length}):`, todasLasMarcas.slice(0, 10));
+  console.log(`   • Pesos detectados (${todosLosPesos.length}):`, todosLosPesos.slice(0, 10));
+  console.log(`   • Presentaciones (${todasLasPresentaciones.length}):`, todasLasPresentaciones.slice(0, 10));
+
   // Top N para conversación (preferimos 3-4, tope 6)
   const TOP_N = 6;
 
@@ -291,7 +332,9 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
     ordered.slice(TOP_N, TOP_N + 6).map(p => toGPTProduct(p, usuarioId))
   );
 
-  if (DEBUG) console.log(`[RECO][OUT] validos=${validos.length} similares=${similares.length} top="${top?.nombre || '—'}"`);
+  console.log(`📤 RETORNANDO: ${validos.length} válidos, ${similares.length} similares`);
+  console.log(`   🥇 TOP: "${top?.nombre || '—'}"`);
+  console.log('🔍 ========== RECOMENDACIÓN FIN ==========\n');
 
   return { validos, top, similares };
 }
