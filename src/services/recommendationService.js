@@ -246,6 +246,13 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
   // POST-FILTRO + SCORE con pesos para señales ricas (y penalización por especie opuesta)
   const tokensForHit = Array.from(new Set([...shouldTokens, ...must])).filter(Boolean);
 
+  // 🎯 Detectar categoría de búsqueda para filtrar por RUBRO
+  const termLower = term.toLowerCase();
+  const buscaAlimento = /\b(comida|alimento|nutricion|balanceado|feed|pienso)\b/i.test(term);
+  const buscaPipeta = /\b(pipeta|spot.?on|antipulga|antipara|flea)\b/i.test(term);
+
+  console.log(`🔍 CATEGORÍA DETECTADA: alimento=${buscaAlimento}, pipeta=${buscaPipeta}`);
+
   const scored = candidatos
     .map((p) => {
       const H = norm([
@@ -254,6 +261,27 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
 
       let s = 0;
       let hits = 0;
+
+      // 🚫 FILTRO DURO: Si busca alimento, excluir productos que NO son alimentos
+      if (buscaAlimento) {
+        const esAlimento = /\b(alimento|food|feed|nutricion)\b/i.test(p.rubro || '');
+        if (!esAlimento) {
+          console.log(`   ❌ FILTRADO: "${p.nombre}" (rubro: ${p.rubro}) - No es alimento`);
+          return null; // Descartar completamente
+        }
+        // Boost si coincide el rubro
+        s += 10;
+      }
+
+      // 🚫 FILTRO DURO: Si busca pipeta, solo mostrar antiparasitarios tópicos
+      if (buscaPipeta) {
+        const esPipeta = /pipeta|spot|topico/i.test(p.familia || '') || /pipeta/i.test(p.nombre || '');
+        if (!esPipeta) {
+          console.log(`   ❌ FILTRADO: "${p.nombre}" - No es pipeta`);
+          return null;
+        }
+        s += 10;
+      }
 
       // MUST fuerte (activos, elecciones del usuario)
       for (const t of must) {
@@ -277,22 +305,42 @@ export async function recomendarDesdeBBDD(termRaw = '', opts = {}) {
       (sig.packs || []).forEach(px => { if (px && tokenHit(H, px)) s += 2; });
       if (sig.weight_hint && tokenHit(H, sig.weight_hint)) s += 3;
 
-      // 💥 Penalización especie contrapuesta (evita "GATOS" cuando piden "PERROS", y viceversa)
-      const hasPerro = /\bperr[oa]s?\b/.test(H);
-      const hasGato = /\bgat[oa]s?\b|felin[oa]s?/.test(H);
-      if (sig.species === 'perro' && hasGato && !hasPerro) s -= 8;
-      if (sig.species === 'gato' && hasPerro && !hasGato) s -= 8;
+      // 💥 PENALIZACIÓN MEJORADA: Especie contrapuesta + pesos sospechosos
+      const hasPerro = /\bperr[oa]s?|canin[oa]s?\b/i.test(H);
+      const hasGato = /\bgat[oa]s?|felin[oa]s?|cat\b/i.test(H);
+
+      // Detectar pesos grandes (más de 20kg = probablemente perro)
+      const pesoGrande = /\b(2[0-9]|[3-9][0-9]|[1-9][0-9]{2,})\s*(kg|kilos?)\b/i.test(p.nombre || '');
+
+      if (sig.species === 'perro' && hasGato && !hasPerro) {
+        s -= 15; // Penalización MUY fuerte
+        console.log(`   ⚠️ PENALIZADO (especie): "${p.nombre}" (score -15)`);
+      }
+      if (sig.species === 'gato') {
+        if (hasPerro && !hasGato) {
+          s -= 15;
+          console.log(`   ⚠️ PENALIZADO (especie): "${p.nombre}" (score -15)`);
+        }
+        if (pesoGrande) {
+          s -= 10; // Peso >20kg no es de gato
+          console.log(`   ⚠️ PENALIZADO (peso sospechoso): "${p.nombre}" (score -10)`);
+        }
+      }
 
       // Disponibilidad leve (NO mostrada al usuario, solo para scoring interno)
       s += (Number(p.cantidad) || 0) / 1000;
 
       return { p, s, hits, H };
     })
+    .filter(x => x !== null) // Eliminar productos filtrados
     // Si hay MUST, al menos uno debe matchear (con regex de peso/pack)
     .filter(x => must.length ? must.some(t => t && tokenHit(x.H, t)) : x.hits > 0)
     .sort((a, b) => b.s - a.s);
 
+  console.log(`📊 DESPUÉS DE FILTROS: ${scored.length} productos válidos`);
+
   if (!scored.length) {
+    console.log('❌ NO QUEDARON PRODUCTOS DESPUÉS DE FILTRAR');
     return { validos: [], top: null, similares: [] };
   }
 
